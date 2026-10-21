@@ -1,0 +1,18 @@
+name = "discordbot"
+main = "src/index.ts"
+compatibility_date = "2026-10-14"
+compatibility_flags = ["nodejs_compat"]
+preview_urls = false
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[observability.logs]
+enabled = true
+invocation_logs = true
+
+[[d1_databases]]
+binding = "SPARK_DB"
+database_id = "1f136a47-85bd-43a2-ae00-a326d28f1383"
+database_name = "spark_org_data"

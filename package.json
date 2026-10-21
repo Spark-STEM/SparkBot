@@ -1,0 +1,25 @@
+{
+  "name": "sparkbot",
+  "version": "0.1.0",
+  "module": "src/index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "bunx wrangler dev",
+    "deploy": "bunx wrangler deploy",
+    "test": "bun test",
+    "typecheck": "bun check",
+    "register": "bun run scripts/register-commands.ts"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261021.1",
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  },
+  "dependencies": {
+    "discord-api-types": "^0.38.57",
+    "discord-interactions": "^4.4.0"
+  }
+}
