@@ -1,3 +1,4 @@
+import { handleRegistrationConfirmation } from "./commands/registration-confirmation.ts";
 import {
   InteractionType,
   InteractionResponseType,
@@ -61,6 +62,11 @@ export default {
       return new Response(JSON.stringify(response), {
         headers: { "Content-Type": "application/json" },
       });
+    }
+
+    if (interaction.type === InteractionType.MessageComponent) {
+      const response = await handleRegistrationConfirmation(interaction, env);
+      return Response.json(response);
     }
 
     // Handle Modal Submissions (InteractionType.ModalSubmit = 5)

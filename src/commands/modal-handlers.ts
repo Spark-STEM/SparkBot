@@ -1,11 +1,11 @@
+import { requestConfirmation, finishRegistration, privateReply } from "./registration-confirmation.ts";
 import {
   InteractionResponseType,
   type APIModalSubmitInteraction,
   type APIInteractionResponse,
 } from "discord-api-types/v10";
 import type { Env } from "../types.ts";
-import { validateAndNormalizeName, registerMemberInDb, getChapters } from "../services/member.ts";
-import { updateGuildMemberNickname } from "../services/discord-client.ts";
+import { validateAndNormalizeName, registerMemberInDb, getChapters, findMemberCandidates } from "../services/member.ts";
 
 /**
  * Extracts form field values from a Discord modal submission.
@@ -50,7 +50,6 @@ export async function handleModalSubmit(
     const values = extractModalValues(interaction.data);
     const rawName = values["name_input"];
     const chapterIdStr = values["chapter_select"];
-    const country = values["country_select"] || "United States";
 
     if (!rawName) {
       return {
@@ -73,19 +72,27 @@ export async function handleModalSubmit(
       };
     }
 
-    const normalizedName = validation.normalized;
+    const submittedName = rawName.trim();
+    if (Array.from(submittedName).length > 32) return privateReply("Name must be at most 32 characters.");
     const chapterId = chapterIdStr ? parseInt(chapterIdStr, 10) : 1;
 
-    // Get chapter name for friendly response
+    // Validate the selected chapter before writing.
     const chapters = await getChapters(env.SPARK_DB);
     const selectedChapter = chapters.find((c) => c.id === chapterId);
-    const chapterName = selectedChapter?.name || selectedChapter?.city || `Chapter #${chapterId}`;
 
     const discordId = interaction.member?.user?.id || interaction.user?.id || null;
 
+    if (!discordId) return privateReply("Registration requires a Discord account.");
+    if (!selectedChapter) return privateReply("Please select a valid chapter.");
+    const linked = await env.SPARK_DB.prepare("SELECT id FROM members WHERE discord_id = ?").bind(discordId).first();
+    if (!linked) {
+      const candidates = await findMemberCandidates(env.SPARK_DB, submittedName, chapterId);
+      if (candidates.length) return requestConfirmation(env, { discordId, guildId: interaction.guild_id, name: submittedName, chapterId }, candidates);
+    }
+
     // 1. Save to D1 database
     const dbResult = await registerMemberInDb(env.SPARK_DB, {
-      name: normalizedName,
+      name: submittedName,
       chapterId,
       discordId,
     });
@@ -100,31 +107,7 @@ export async function handleModalSubmit(
       };
     }
 
-    // 2. Auto-rename member in Discord Guild if possible
-    let renameNote = "";
-    if (interaction.guild_id && discordId && env.DISCORD_TOKEN) {
-      const renameResult = await updateGuildMemberNickname({
-        guildId: interaction.guild_id,
-        userId: discordId,
-        nickname: normalizedName,
-        botToken: env.DISCORD_TOKEN,
-      });
-
-      if (renameResult.success) {
-        renameNote = "\n🏷️ Your server nickname was updated to **" + normalizedName + "**.";
-      } else {
-        renameNote =
-          "\n⚠️ *(Could not auto-rename your server nickname: bot requires 'Manage Nicknames' permission and higher role hierarchy)*";
-      }
-    }
-
-    return {
-      type: InteractionResponseType.ChannelMessageWithSource,
-      data: {
-        content: `✅ **Registration Complete!**\n• **Name:** ${normalizedName}\n• **Chapter:** ${chapterName}\n• **Country:** ${country}${renameNote}`,
-        flags: 64, // Ephemeral so only the user sees confirmation
-      },
-    };
+    return finishRegistration(env, discordId, interaction.guild_id, submittedName);
   }
 
   return {
