@@ -7,6 +7,11 @@ export interface Env {
   DISCORD_APPLICATION_ID?: string;
   DISCORD_TOKEN?: string;
 
+  // Pages notification destination and Cloudflare generic webhook authentication
+  DEPLOY_NOTIFICATION_CHANNEL_ID?: string;
+  CLOUDFLARE_WEBHOOK_SECRET?: string;
+  CLOUDFLARE_PAGES_POLICY_ID?: string;
+
   // Optional comma-separated list of Discord user IDs with admin privileges
   ADMIN_USER_IDS?: string;
 }

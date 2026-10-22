@@ -8,10 +8,15 @@ import type { Env } from "./types.ts";
 import { verifyDiscordRequest } from "./verify.ts";
 import { handleCommand } from "./commands/index.ts";
 import { handleModalSubmit } from "./commands/modal-handlers.ts";
+import { handlePagesWebhook } from "./webhooks/pages.ts";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
+
+    if (url.pathname === "/webhooks/cloudflare/pages") {
+      return handlePagesWebhook(request, env);
+    }
 
     // Health check endpoint for browser inspection or uptime monitors
     if (request.method === "GET") {
