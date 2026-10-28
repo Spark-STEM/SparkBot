@@ -4,6 +4,7 @@ export const DiscordRoutes = {
   guildRoles: (guildId: string) => `/guilds/${guildId}/roles`,
   guildMembers: (guildId: string) => `/guilds/${guildId}/members`,
   guildAuditLogs: (guildId: string) => `/guilds/${guildId}/audit-logs`,
+  userDM: () => "/users/@me/channels",
   channel: (channelId: string) => `/channels/${channelId}`,
   channelMessages: (channelId: string) => `/channels/${channelId}/messages`,
   message: (channelId: string, messageId: string) => `/channels/${channelId}/messages/${messageId}`,

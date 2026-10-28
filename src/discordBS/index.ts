@@ -10,6 +10,7 @@ export * from "./rest/client.ts";
 export * from "./rest/routes.ts";
 export * from "./resources/base.ts";
 export * from "./resources/channel.ts";
+export * from "./resources/dm-channel.ts";
 export * from "./resources/channel-types.ts";
 export * from "./resources/guild.ts";
 export * from "./resources/member.ts";

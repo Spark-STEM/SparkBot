@@ -9,7 +9,14 @@ export interface FileUpload {
   spoiler?: boolean;
 }
 export type RequestBody = Json | string | ArrayBuffer | FormData;
-export type MessagePayload = Json & { files?: FileUpload[] };
+export interface SerializablePayload { toJSON(): Json; }
+export type MessagePayload = Json & {
+  embeds?: readonly SerializablePayload[];
+  components?: readonly SerializablePayload[];
+  poll?: SerializablePayload;
+  allowed_mentions?: Json | SerializablePayload;
+  files?: FileUpload[];
+};
 
 /** Channel types supported by guild channel creation. */
 export enum ChannelType {

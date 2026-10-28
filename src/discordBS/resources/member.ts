@@ -29,12 +29,19 @@ export class DiscordMember extends DiscordResource<Json, DiscordMember> {
   }
   /** The member's user ID. */
   get userId(): string { return this.id; }
+  /** The member's global username, when Discord included user data. */
+  get name(): string | null { return this.user.name; }
   /** The member's username, when Discord included user data. */
   get username(): string | null { return this.user.username; }
+  /** The member's global display name, when Discord included user data. */
+  get globalName(): string | null { return this.user.globalName; }
   /** The member's effective display name: nickname, global name, or username. */
   get displayName(): string | null { return this.nickname ?? this.user.globalName ?? this.username; }
   /** Whether the underlying Discord account is a bot. */
   get bot(): boolean { return this.user.bot; }
+  get system(): boolean { return this.user.system; }
+  get publicFlags(): number | null { return this.user.publicFlags; }
+  get accentColor(): number | null { return this.user.accentColor; }
   /** The member's join timestamp, when Discord included it. */
   get joinedAt(): Date | null {
     const value = this.memberData.joined_at;

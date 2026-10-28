@@ -27,7 +27,7 @@ export interface CreateThreadOptions {
 import { OverwriteType, type PermissionOverwrite, permissionBits, PermissionBitField } from "../types/permissions.ts";
 
 /** A Discord channel resource with message and permission operations. */
-export class DiscordChannel extends DiscordResource {
+export class DiscordChannel extends DiscordResource<Json, DiscordChannel> {
   /** The channel's Discord type, when this resource has payload data. */
   get type(): number | null { return typeof this.data?.type === "number" ? this.data.type : null; }
   /** The channel name, when this resource has payload data. */
@@ -49,6 +49,16 @@ export class DiscordChannel extends DiscordResource {
 
   /** Returns this channel as its text-capable interface for voice/stage channels. */
   get text() { return this; }
+
+  override fetch(): Promise<DiscordChannel> {
+    return this.client.request<Json>("GET", this.route)
+      .then((channel) => new DiscordChannel(this.client, this.id, channel));
+  }
+
+  override edit(payload: Json): Promise<DiscordChannel> {
+    return this.client.request<Json>("PATCH", this.route, payload)
+      .then((channel) => new DiscordChannel(this.client, this.id, channel));
+  }
 
   /** Lists active threads or forum posts associated with this channel. */
   fetchPosts(): Promise<DiscordCollection<DiscordChannel>> {
@@ -109,12 +119,12 @@ export class DiscordChannel extends DiscordResource {
 
   /** Locks or unlocks this thread. */
   setLocked(locked = true): Promise<DiscordChannel> {
-    return this.edit({ locked }).then((thread) => new DiscordChannel(this.client, this.id, thread));
+    return this.edit({ locked }).then((thread) => new DiscordChannel(this.client, this.id, thread.raw));
   }
 
   /** Archives or unarchives this thread. */
   setArchived(archived = true): Promise<DiscordChannel> {
-    return this.edit({ archived }).then((thread) => new DiscordChannel(this.client, this.id, thread));
+    return this.edit({ archived }).then((thread) => new DiscordChannel(this.client, this.id, thread.raw));
   }
 
   /** Fetches members currently participating in this thread. */
@@ -215,7 +225,7 @@ export class DiscordChannel extends DiscordResource {
       throw new Error("Slow mode must be an integer between 0 and 21600 seconds.");
     }
     return this.edit({ rate_limit_per_user: seconds })
-      .then((channel) => new DiscordChannel(this.client, this.id, channel));
+      .then((channel) => new DiscordChannel(this.client, this.id, channel.raw));
   }
 
   /** Fetches a message from this channel. */
@@ -225,7 +235,7 @@ export class DiscordChannel extends DiscordResource {
   }
 
   /** Fetches messages in reverse chronological order. */
-  fetchMessages(options: { around?: string; before?: string; after?: string; limit?: number } = {}) {
+  fetchMessages(options: { around?: string; before?: string; after?: string; limit?: number } = {}): Promise<DiscordCollection<DiscordMessage>> {
     const params = new URLSearchParams();
     for (const key of ["around", "before", "after"] as const) {
       if (options[key]) params.set(key, options[key]!);
@@ -233,8 +243,8 @@ export class DiscordChannel extends DiscordResource {
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.size ? `?${params}` : "";
     return this.client.request<Json[]>("GET", `/channels/${this.id}/messages${suffix}`)
-      .then((messages) => messages.map((message) =>
-        new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message)));
+      .then((messages) => new DiscordCollection<DiscordMessage>(...messages.map((message) =>
+        new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message))));
   }
 
   /** Bulk-deletes messages in this channel. */
