@@ -1,6 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Env } from "../types.ts";
-import { sendDeploymentMessage } from "../services/discord-client.ts";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -73,47 +72,23 @@ export async function handlePagesWebhook(request: Request, env: Env): Promise<Re
     return new Response("Missing notification timestamp", { status: 400 });
   }
 
-  const digest = await hash(JSON.stringify([payload.policy_id, payload.ts, payload.text, payload.data ?? null]));
-  const eventKey = Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
-  const owner = crypto.randomUUID();
-  const now = Date.now();
   try {
-    const claimed = await env.SPARK_DB.prepare(`
-      INSERT INTO deployment_notifications (event_key, lease_owner, lease_until)
-      VALUES (?, ?, ?)
-      ON CONFLICT(event_key) DO UPDATE SET lease_owner = excluded.lease_owner,
-        lease_until = excluded.lease_until
-      WHERE delivered_at IS NULL AND lease_until <= ?
-    `).bind(eventKey, owner, now + 60_000, now).run();
-    if (claimed.meta.changes === 0) {
-      const previous = await env.SPARK_DB.prepare(
-        "SELECT delivered_at FROM deployment_notifications WHERE event_key = ?"
-      ).bind(eventKey).first<{ delivered_at: number | null }>();
-      if (previous?.delivered_at != null) return Response.json({ status: "duplicate" });
-      return new Response("Delivery in progress; retry later", { status: 503, headers: { "Retry-After": "60" } });
-    }
-    try {
-      // Await delivery so failures remain visible to the webhook sender.
-      await sendDeploymentMessage({
-        channelId: env.DEPLOY_NOTIFICATION_CHANNEL_ID,
-        botToken: env.DISCORD_TOKEN,
-        text: payload.text,
-        nonce: eventKey.slice(0, 24),
-      });
-      await env.SPARK_DB.prepare(`
-        UPDATE deployment_notifications SET delivered_at = ?
-        WHERE event_key = ? AND lease_owner = ?
-      `).bind(Date.now(), eventKey, owner).run();
-    } catch (error) {
-      await env.SPARK_DB.prepare(`
-        UPDATE deployment_notifications SET lease_until = 0
-        WHERE event_key = ? AND lease_owner = ? AND delivered_at IS NULL
-      `).bind(eventKey, owner).run();
-      throw error;
-    }
+    const response = await fetch(`https://discord.com/api/v10/channels/${env.DEPLOY_NOTIFICATION_CHANNEL_ID}/messages`, {
+      method: "POST",
+      headers: { Authorization: `Bot ${env.DISCORD_TOKEN}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        content: `**Website deployment update**\nhttps://spark-stem.pages.dev\n\n${payload.text}`.slice(0, 2000),
+        allowed_mentions: { parse: [] },
+        nonce: `${payload.ts}`,
+        enforce_nonce: true,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+    await response.body?.cancel();
+    if (!response.ok) throw new Error(`Discord message failed (${response.status})`);
     return Response.json({ status: "sent" });
   } catch {
-    console.error(JSON.stringify({ event: "pages_notification_failed", eventKey }));
+    console.error(JSON.stringify({ event: "pages_notification_failed", timestamp: payload.ts }));
     return new Response("Notification delivery failed", { status: 502 });
   }
 }

@@ -1,6 +1,7 @@
 export interface Env {
   // Cloudflare D1 Database binding
   SPARK_DB: D1Database;
+  database: import("./services/database.ts").Database;
 
   // Discord Bot Secrets
   DISCORD_PUBLIC_KEY: string;

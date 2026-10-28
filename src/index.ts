@@ -1,17 +1,20 @@
-import { handleRegistrationConfirmation } from "./commands/registration-confirmation.ts";
 import {
   InteractionType,
   InteractionResponseType,
   type APIInteraction,
 } from "discord-api-types/v10";
+import { verifyKey } from "discord-interactions";
 import type { Env } from "./types.ts";
-import { verifyDiscordRequest } from "./verify.ts";
-import { handleCommand } from "./commands/index.ts";
-import { handleModalSubmit } from "./commands/modal-handlers.ts";
+import { handleSlashCommand } from "./handler/commands.ts";
+import { handleAutocomplete } from "./handler/commands.ts";
+import { handleComponent } from "./handler/components.ts";
+import { handleModal } from "./handler/modals.ts";
 import { handlePagesWebhook } from "./webhooks/pages.ts";
+import { Database } from "./services/database.ts";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    env.database ??= new Database(env.SPARK_DB);
     const url = new URL(request.url);
 
     if (url.pathname === "/webhooks/cloudflare/pages") {
@@ -46,7 +49,10 @@ export default {
     }
 
     // Verify incoming Discord signature (Ed25519)
-    const { isValid, body } = await verifyDiscordRequest(request, env.DISCORD_PUBLIC_KEY);
+    const signature = request.headers.get("x-signature-ed25519");
+    const timestamp = request.headers.get("x-signature-timestamp");
+    const body = await request.text();
+    const isValid = Boolean(signature && timestamp && await verifyKey(body, signature, timestamp, env.DISCORD_PUBLIC_KEY));
     if (!isValid) {
       return new Response("Invalid request signature", { status: 401 });
     }
@@ -63,20 +69,24 @@ export default {
 
     // Handle Slash Commands (InteractionType.ApplicationCommand = 2)
     if (interaction.type === InteractionType.ApplicationCommand) {
-      const response = await handleCommand(interaction, env);
+      const response = await handleSlashCommand(interaction, env);
       return new Response(JSON.stringify(response), {
         headers: { "Content-Type": "application/json" },
       });
     }
 
+    if (interaction.type === InteractionType.ApplicationCommandAutocomplete) {
+      return Response.json(await handleAutocomplete(interaction, env));
+    }
+
     if (interaction.type === InteractionType.MessageComponent) {
-      const response = await handleRegistrationConfirmation(interaction, env);
+      const response = await handleComponent(interaction, env);
       return Response.json(response);
     }
 
     // Handle Modal Submissions (InteractionType.ModalSubmit = 5)
     if (interaction.type === InteractionType.ModalSubmit) {
-      const response = await handleModalSubmit(interaction, env);
+      const response = await handleModal(interaction, env);
       return new Response(JSON.stringify(response), {
         headers: { "Content-Type": "application/json" },
       });

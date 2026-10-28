@@ -9,6 +9,7 @@
     "deploy": "bunx wrangler deploy",
     "test": "bun test",
     "typecheck": "bun check",
+    "audit:discordbs": "bun run scripts/audit-discordbs-api.ts",
     "register": "bun run scripts/register-commands.ts"
   },
   "devDependencies": {
