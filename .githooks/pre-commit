@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+if command -v bun >/dev/null 2>&1; then
+  bun run scripts/register-commands.ts --production
+else
+  node --env-file-if-exists=.env --import tsx scripts/register-commands.ts --production
+fi
+
+git add -- src/generated/registry.ts src/generated/databaseSchema.ts

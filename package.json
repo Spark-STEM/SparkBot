@@ -5,16 +5,25 @@
   "type": "module",
   "private": true,
   "scripts": {
-    "dev": "bunx wrangler dev",
-    "deploy": "bunx wrangler deploy",
-    "test": "bun test",
-    "typecheck": "bun check",
-    "audit:discordbs": "bun run scripts/audit-discordbs-api.ts",
-    "register": "bun run scripts/register-commands.ts"
+    "prepare": "git config core.hooksPath .githooks",
+    "generate": "node scripts/generate-registry.mjs",
+    "generate:bun": "bun scripts/generate-registry.mjs",
+    "dev": "npm run generate && node --env-file-if-exists=.env scripts/dev-local.mjs",
+    "dev:bun": "bun run generate:bun && bun run scripts/dev-local.mjs",
+    "deploy": "npm run generate && wrangler deploy",
+    "deploy:bun": "bun run generate:bun && bunx wrangler deploy",
+    "test": "node --test",
+    "test:bun": "bun test",
+    "typecheck": "tsc --noEmit",
+    "audit:discordbs": "tsx scripts/audit-discordbs-api.ts",
+    "audit:discordbs:bun": "bun run scripts/audit-discordbs-api.ts",
+    "db:refresh-local": "node --env-file-if-exists=.env scripts/refresh-local-d1.mjs",
+    "db:refresh-local:bun": "bun run scripts/refresh-local-d1.mjs"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261021.1",
     "@types/bun": "latest",
+    "tsx": "^4.23.15",
     "wrangler": "^4.151.3"
   },
   "peerDependencies": {

@@ -8,6 +8,10 @@ dist
 
 # Cloudflare Wrangler
 .wrangler
+.wrangler/local-d1/
+.wrangler/local-d1-refresh/
+.wrangler/local-d1-previous/
+.wrangler/local-d1-seed.sql
 .dev.vars
 .dev.vars.*
 

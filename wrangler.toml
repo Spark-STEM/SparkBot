@@ -4,9 +4,6 @@ compatibility_date = "2026-10-14"
 compatibility_flags = ["nodejs_compat"]
 preview_urls = false
 
-[vars]
-DEPLOY_NOTIFICATION_CHANNEL_ID = "1334032077955268679"
-
 [observability]
 enabled = true
 head_sampling_rate = 1

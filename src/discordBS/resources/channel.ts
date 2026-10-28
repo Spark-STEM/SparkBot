@@ -1,7 +1,7 @@
 import { DiscordResource } from "./base.ts";
-import { DiscordMessage } from "./message.ts";
-import { DiscordWebhook } from "./webhook.ts";
-import { DiscordInvite } from "./invite.ts";
+import type { DiscordMessage } from "./message.ts";
+import type { DiscordWebhook } from "./webhook.ts";
+import type { DiscordInvite } from "./invite.ts";
 import type { DiscordRestClient } from "../rest/client.ts";
 import type { Json } from "../types/common.ts";
 import type { MessagePayload } from "../types/common.ts";
@@ -9,7 +9,7 @@ import {
   DiscordPermissionOverwrite,
 } from "./permission-overwrite.ts";
 import { assertMessageContent } from "../types/validation.ts";
-import { DiscordThreadMember } from "./thread-member.ts";
+import type { DiscordThreadMember } from "./thread-member.ts";
 import { DiscordCollection } from "../types/collections.ts";
 
 export interface CreateThreadOptions {
@@ -130,8 +130,11 @@ export class DiscordChannel extends DiscordResource<Json, DiscordChannel> {
   /** Fetches members currently participating in this thread. */
   fetchThreadMembers(): Promise<DiscordCollection<DiscordThreadMember>> {
     return this.client.request<Json[]>("GET", `/channels/${this.id}/thread-members`)
-      .then((members) => new DiscordCollection<DiscordThreadMember>(...members.map((member) =>
-        new DiscordThreadMember(this.client, member))));
+      .then(async (members) => {
+        const { DiscordThreadMember } = await import("./thread-member.ts");
+        return new DiscordCollection<DiscordThreadMember>(...members.map((member) =>
+          new DiscordThreadMember(this.client, member)));
+      });
   }
 
   /** Fetches all permission overwrites configured on this channel. */
@@ -231,7 +234,10 @@ export class DiscordChannel extends DiscordResource<Json, DiscordChannel> {
   /** Fetches a message from this channel. */
   fetchMessage(messageId: string): Promise<DiscordMessage> {
     return this.client.request<Json>("GET", `/channels/${this.id}/messages/${messageId}`)
-      .then((message) => new DiscordMessage(this.client, messageId, `/channels/${this.id}/messages/${messageId}`, message));
+      .then(async (message) => {
+        const { DiscordMessage } = await import("./message.ts");
+        return new DiscordMessage(this.client, messageId, `/channels/${this.id}/messages/${messageId}`, message);
+      });
   }
 
   /** Fetches messages in reverse chronological order. */
@@ -243,8 +249,11 @@ export class DiscordChannel extends DiscordResource<Json, DiscordChannel> {
     if (options.limit !== undefined) params.set("limit", String(options.limit));
     const suffix = params.size ? `?${params}` : "";
     return this.client.request<Json[]>("GET", `/channels/${this.id}/messages${suffix}`)
-      .then((messages) => new DiscordCollection<DiscordMessage>(...messages.map((message) =>
-        new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message))));
+      .then(async (messages) => {
+        const { DiscordMessage } = await import("./message.ts");
+        return new DiscordCollection<DiscordMessage>(...messages.map((message) =>
+          new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message)));
+      });
   }
 
   /** Bulk-deletes messages in this channel. */
@@ -258,27 +267,39 @@ export class DiscordChannel extends DiscordResource<Json, DiscordChannel> {
   /** Fetches pinned messages from this channel. */
   fetchPins(): Promise<DiscordCollection<DiscordMessage>> {
     return this.client.request<Json[]>("GET", `/channels/${this.id}/pins`)
-      .then((messages) => new DiscordCollection<DiscordMessage>(...messages.map((message) =>
-        new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message))));
+      .then(async (messages) => {
+        const { DiscordMessage } = await import("./message.ts");
+        return new DiscordCollection<DiscordMessage>(...messages.map((message) =>
+          new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message)));
+      });
   }
 
   /** Creates a webhook in this channel. */
   createWebhook(payload: Json): Promise<DiscordWebhook> {
     return this.client.request<Json>("POST", `/channels/${this.id}/webhooks`, payload)
-      .then((webhook) => new DiscordWebhook(this.client, String(webhook.id), `/webhooks/${webhook.id}`, webhook));
+      .then(async (webhook) => {
+        const { DiscordWebhook } = await import("./webhook.ts");
+        return new DiscordWebhook(this.client, String(webhook.id), `/webhooks/${webhook.id}`, webhook);
+      });
   }
 
   /** Fetches every webhook attached to this channel. */
   fetchWebhooks(): Promise<DiscordCollection<DiscordWebhook>> {
     return this.client.request<Json[]>("GET", `/channels/${this.id}/webhooks`)
-      .then((webhooks) => new DiscordCollection<DiscordWebhook>(...webhooks.map((webhook) =>
-        new DiscordWebhook(this.client, String(webhook.id), `/webhooks/${webhook.id}`, webhook))));
+      .then(async (webhooks) => {
+        const { DiscordWebhook } = await import("./webhook.ts");
+        return new DiscordCollection<DiscordWebhook>(...webhooks.map((webhook) =>
+          new DiscordWebhook(this.client, String(webhook.id), `/webhooks/${webhook.id}`, webhook)));
+      });
   }
 
   /** Creates an invite for this channel. */
   createInvite(payload: Json = {}): Promise<DiscordInvite> {
     return this.client.request<Json>("POST", `/channels/${this.id}/invites`, payload)
-      .then((invite) => new DiscordInvite(this.client, String(invite.code), invite));
+      .then(async (invite) => {
+        const { DiscordInvite } = await import("./invite.ts");
+        return new DiscordInvite(this.client, String(invite.code), invite);
+      });
   }
 
   /** Sends a message to this channel and wraps the returned message. */
@@ -289,7 +310,10 @@ export class DiscordChannel extends DiscordResource<Json, DiscordChannel> {
       ? this.client.requestMultipart<Json>("POST", `/channels/${this.id}/messages`, payload, files)
       : this.client.request<Json>("POST", `/channels/${this.id}/messages`, payload);
     return request
-      .then((message) => new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message));
+      .then(async (message) => {
+        const { DiscordMessage } = await import("./message.ts");
+        return new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message);
+      });
   }
 
   /** Lazily iterates through all channel messages using Discord pagination. */

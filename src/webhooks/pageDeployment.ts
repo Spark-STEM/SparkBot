@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import type { Env } from "../types.ts";
+import type { Webhook } from "./types.ts";
 
 const MAX_BODY_BYTES = 64 * 1024;
 
@@ -73,7 +74,7 @@ export async function handlePagesWebhook(request: Request, env: Env): Promise<Re
   }
 
   try {
-    const response = await fetch(`https://discord.com/api/v10/channels/${env.DEPLOY_NOTIFICATION_CHANNEL_ID}/messages`, {
+    const response = await fetch(`https://discord.com/api/v10/channels/1562641622276112384/messages`, {
       method: "POST",
       headers: { Authorization: `Bot ${env.DISCORD_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -92,3 +93,10 @@ export async function handlePagesWebhook(request: Request, env: Env): Promise<Re
     return new Response("Notification delivery failed", { status: 502 });
   }
 }
+
+const webhook: Webhook = {
+  pathname: "/webhooks/cloudflare/pages",
+  handler: handlePagesWebhook,
+};
+
+export default webhook;

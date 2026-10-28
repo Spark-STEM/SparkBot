@@ -54,7 +54,6 @@ export class DiscordClient extends DiscordRestClient {
   getGuild(id: string): DiscordGuild { return new DiscordGuild(this, id); }
   /** Gets a lazy user reference by ID. */
   getUser(id: string): DiscordUser { return new DiscordUser(this, id); }
-
 }
 
 export type { DiscordResource };

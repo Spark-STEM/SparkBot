@@ -9,7 +9,7 @@ import { handleSlashCommand } from "./handler/commands.ts";
 import { handleAutocomplete } from "./handler/commands.ts";
 import { handleComponent } from "./handler/components.ts";
 import { handleModal } from "./handler/modals.ts";
-import { handlePagesWebhook } from "./webhooks/pages.ts";
+import { webhooks } from "./generated/registry.ts";
 import { Database } from "./services/database.ts";
 
 export default {
@@ -17,9 +17,8 @@ export default {
     env.database ??= new Database(env.SPARK_DB);
     const url = new URL(request.url);
 
-    if (url.pathname === "/webhooks/cloudflare/pages") {
-      return handlePagesWebhook(request, env);
-    }
+    const webhook = webhooks.find(({ pathname }) => pathname === url.pathname);
+    if (webhook) return webhook.handler(request, env);
 
     // Health check endpoint for browser inspection or uptime monitors
     if (request.method === "GET") {

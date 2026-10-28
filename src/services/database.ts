@@ -1,14 +1,6 @@
 export type SqlValue = string | number | boolean | null | ArrayBuffer | ArrayBufferView;
 type Row = Record<string, any>;
-
-/** Row types for the application's tables, used to infer `select()` results. */
-export interface TableRows {
-  chapters: { id: number; country: string; region: string | null; city: string; name: string | null };
-  roles: { id: number; name: string; description: string | null };
-  schools: { id: number; chapter_id: number | null; name: string; link: string | null; cover_image: string | null };
-  programs: { id: number; school_id: number | null; name: string; description: string | null; status: string };
-  members: { id: number; chapter_id: number | null; name: string; email: string | null; hours: number; discord_id: string | null };
-}
+import type { TableRows } from "../generated/databaseSchema.ts";
 
 const identifier = /^[A-Za-z_][A-Za-z0-9_]*$/;
 

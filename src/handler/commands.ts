@@ -1,15 +1,10 @@
 import { InteractionResponseType, type APIApplicationCommandAutocompleteInteraction, type APIApplicationCommandInteraction, type APIInteractionResponse } from "discord-api-types/v10";
 import type { Env } from "../types.ts";
-import type { SlashCommand } from "../slashcommands/types.ts";
 import { AutocompleteInteraction } from "../discordBS/interactions/autocomplete.ts";
 import { CommandInteraction } from "../discordBS/interactions/slash.ts";
 import { DiscordClient } from "../discordBS/index.ts";
-import ping from "../slashcommands/ping.ts";
-import stats from "../slashcommands/stats.ts";
-import chapters from "../slashcommands/chapters.ts";
-import programs from "../slashcommands/programs.ts";
+import { commands } from "../generated/registry.ts";
 
-export const commands: SlashCommand[] = [ping, stats, chapters, programs];
 export const commandDefinitions = commands.map(({ run, ...definition }) => definition);
 
 function findFocused(options: readonly { name: string; focused?: boolean; options?: readonly any[] }[]): string | undefined {
