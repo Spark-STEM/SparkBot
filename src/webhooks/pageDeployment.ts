@@ -3,6 +3,7 @@ import type { Env } from "../types.ts";
 import type { Webhook } from "./types.ts";
 
 const MAX_BODY_BYTES = 64 * 1024;
+const CHANNEL_ID = "1562641622276112384"; 
 
 async function hash(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
@@ -60,7 +61,7 @@ export async function handlePagesWebhook(request: Request, env: Env): Promise<Re
   // Cloudflare Save and Test sends only { text }. Acknowledge it without posting.
   if (Object.keys(payload).length === 1) return Response.json({ status: "test_received" });
 
-  if (!env.CLOUDFLARE_PAGES_POLICY_ID || !env.DISCORD_TOKEN || !env.DEPLOY_NOTIFICATION_CHANNEL_ID) {
+  if (!env.CLOUDFLARE_PAGES_POLICY_ID || !env.DISCORD_TOKEN) {
     return new Response("Notification delivery is not configured", { status: 503 });
   }
   // Pin the policy configured for spark-stem / production / deployment success.
@@ -74,7 +75,7 @@ export async function handlePagesWebhook(request: Request, env: Env): Promise<Re
   }
 
   try {
-    const response = await fetch(`https://discord.com/api/v10/channels/1562641622276112384/messages`, {
+    const response = await fetch(`https://discord.com/api/v10/channels/${CHANNEL_ID}/messages`, {
       method: "POST",
       headers: { Authorization: `Bot ${env.DISCORD_TOKEN}`, "Content-Type": "application/json" },
       body: JSON.stringify({

@@ -7,7 +7,6 @@ const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const localValues = {
   DISCORD_PUBLIC_KEY: process.env.LOCAL_DISCORD_PUBLIC_KEY,
   DISCORD_TOKEN: process.env.LOCAL_DISCORD_TOKEN,
-  DEPLOY_NOTIFICATION_CHANNEL_ID: "",
 };
 
 for (const key of ["LOCAL_DISCORD_PUBLIC_KEY", "LOCAL_DISCORD_TOKEN", "LOCAL_DISCORD_APPLICATION_ID"]) {
@@ -86,6 +85,27 @@ const child = spawn(process.execPath, args, {
 let outputTail = "";
 let tunnelHandled = false;
 
+function createOutputFilter(destination) {
+  let pending = "";
+  return {
+    write(chunk) {
+      pending += chunk;
+      const lines = pending.split(/\r?\n/);
+      pending = lines.pop() ?? "";
+      for (const line of lines) {
+        const plainLine = line.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "");
+        const qrGlyphs = plainLine.match(/[█▀▄▌▐░▒▓]/gu)?.length ?? 0;
+        if (qrGlyphs < 20 || !/^[\s█▀▄▌▐░▒▓]+$/u.test(plainLine)) {
+          destination.write(`${line}\n`);
+        }
+      }
+    },
+    flush() {
+      if (pending) destination.write(pending);
+    },
+  };
+}
+
 function copyTunnelUrl(url) {
   const command = process.platform === "win32"
     ? ["clip.exe", [], url]
@@ -120,29 +140,35 @@ function openUrl(url) {
   }
 }
 
-function handleOutput(chunk, destination) {
+function handleOutput(chunk, outputFilter) {
   const text = chunk.toString();
-  destination.write(text);
-  if (tunnelHandled) return;
-
-  outputTail = (outputTail + text).slice(-4096);
-  const tunnelUrl = /https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/i.exec(outputTail)?.[0];
-  if (!tunnelUrl) return;
-  tunnelHandled = true;
-
-  const portalUrl = `https://discord.com/developers/applications/${process.env.LOCAL_DISCORD_APPLICATION_ID}/information`;
-  console.log(`\nLocal Discord Interactions Endpoint URL: ${tunnelUrl}`);
-  console.log(`Discord application settings: ${portalUrl}`);
-  if (copyTunnelUrl(tunnelUrl)) console.log("Tunnel URL copied to clipboard.");
-  openUrl(portalUrl);
+  outputFilter.write(text);
+  if (!tunnelHandled) {
+    outputTail = (outputTail + text).slice(-4096);
+    const tunnelUrl = /https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/i.exec(outputTail)?.[0];
+    if (tunnelUrl) {
+      tunnelHandled = true;
+      const portalUrl = `https://discord.com/developers/applications/${process.env.LOCAL_DISCORD_APPLICATION_ID}/information`;
+      console.log(`\nLocal Discord Interactions Endpoint URL: ${tunnelUrl}`);
+      console.log(`Discord application settings: ${portalUrl}`);
+      if (copyTunnelUrl(tunnelUrl)) console.log("Tunnel URL copied to clipboard.");
+      openUrl(portalUrl);
+    }
+  }
 }
 
-child.stdout.on("data", (chunk) => handleOutput(chunk, process.stdout));
-child.stderr.on("data", (chunk) => handleOutput(chunk, process.stderr));
+const stdoutFilter = createOutputFilter(process.stdout);
+const stderrFilter = createOutputFilter(process.stderr);
+child.stdout.on("data", (chunk) => handleOutput(chunk, stdoutFilter));
+child.stderr.on("data", (chunk) => handleOutput(chunk, stderrFilter));
 child.on("error", (error) => {
   console.error("Could not start Wrangler local development:", error.message);
   process.exitCode = 1;
 });
 child.on("exit", (code, signal) => {
   process.exitCode = signal ? 1 : code ?? 1;
+});
+child.on("close", () => {
+  stdoutFilter.flush();
+  stderrFilter.flush();
 });

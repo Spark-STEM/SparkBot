@@ -9,7 +9,6 @@ export interface Env {
   DISCORD_TOKEN?: string;
 
   // Pages notification destination and Cloudflare generic webhook authentication
-  DEPLOY_NOTIFICATION_CHANNEL_ID?: string;
   CLOUDFLARE_WEBHOOK_SECRET?: string;
   CLOUDFLARE_PAGES_POLICY_ID?: string;
 
