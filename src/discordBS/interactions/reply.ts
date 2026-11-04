@@ -1,13 +1,14 @@
-import { InteractionResponseType, type APIInteractionResponse, type APIModalInteractionResponseCallbackData } from "discord-api-types/v10";
+import { InteractionResponseType, type APIModalInteractionResponseCallbackData } from "discord-api-types/v10";
 import type { Env } from "../../types.ts";
-import { MessageFlags, type Builder } from "../builders/core.ts";
+import { MessageFlags } from "../builders/core.ts";
+import type { ModalBuilder } from "../builders/modals.ts";
+import { DiscordMessage } from "../resources/message.ts";
+import { DiscordRoutes } from "../rest/routes.ts";
 import type { Json } from "../types/common.ts";
 import type { InteractionResponse, ReplyPayload } from "./core.ts";
 import { InteractionContext } from "./core.ts";
-import { DiscordMessage } from "../resources/message.ts";
-import { DiscordRoutes } from "../rest/routes.ts";
 
-export interface ReplyOptions extends ReplyPayload {}
+export interface ReplyOptions extends ReplyPayload { }
 
 function payload(options: ReplyOptions): Json {
   const components = options.components?.map((component) => component.toJSON());
@@ -67,7 +68,7 @@ export class InteractionReply extends InteractionContext {
     return this;
   }
 
-  async deferReply(ephemeral = false): Promise<this> {
+  async deferReply({ ephemeral = false }: { ephemeral?: boolean } = {}): Promise<this> {
     if (this.response) throw new Error("This interaction has already been acknowledged.");
     this.response = {
       type: InteractionResponseType.DeferredChannelMessageWithSource,
@@ -76,7 +77,7 @@ export class InteractionReply extends InteractionContext {
     return this;
   }
 
-  async showModal(modal: Builder): Promise<this> {
+  async showModal(modal: ModalBuilder<true>): Promise<this> {
     if (this.response) throw new Error("This interaction has already been acknowledged.");
     this.response = {
       type: InteractionResponseType.Modal,
@@ -90,11 +91,26 @@ export class InteractionReply extends InteractionContext {
     const body = typeof options === "string" ? { content: options } : options ? payload(options) : undefined;
     const files = typeof options === "string" ? [] : options.files ?? [];
     const message = files.length > 0
-      ? await this.api.requestMultipart<Json>("POST",       `${DiscordRoutes.webhook(this.applicationId, this.token)}?wait=true`, body ?? {}, files)
+      ? await this.api.requestMultipart<Json>("POST", `${DiscordRoutes.webhook(this.applicationId, this.token)}?wait=true`, body ?? {}, files)
       : await this.api.request<Json>("POST", `${DiscordRoutes.webhook(this.applicationId, this.token)}?wait=true`, body);
     const messageId = String(message.id ?? "");
     if (!messageId) throw new Error("Discord returned a follow-up without a message ID.");
     const route = DiscordRoutes.webhookMessage(this.applicationId, this.token, messageId);
     return new DiscordMessage(this.api, messageId, route, message);
+  }
+
+  async edit(options: ReplyOptions): Promise<DiscordMessage> {
+    if (this.isTokenExpired) throw new Error("The interaction token has expired.");
+    const route = DiscordRoutes.webhookMessage(this.applicationId, this.token, "@original");
+    return new DiscordMessage(this.api, "@original", route).edit(payload(options));
+  }
+
+  async delete(): Promise<void> {
+    if (this.isTokenExpired) throw new Error("The interaction token has expired.");
+    await new DiscordMessage(
+      this.api,
+      "@original",
+      DiscordRoutes.webhookMessage(this.applicationId, this.token, "@original"),
+    ).delete();
   }
 }

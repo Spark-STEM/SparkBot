@@ -1,6 +1,6 @@
+import type { ComponentInteraction } from "../interactions/component.ts";
 import { attachCallback } from "./callbacks.ts";
 import { assertIntegerRange, assertLength, assertRequiredText, type Builder } from "./core.ts";
-import type { ComponentInteraction } from "../interactions/component.ts";
 type Json = Record<string, unknown>;
 export interface SelectOption {
   label: string;
@@ -13,6 +13,7 @@ export class StringSelectMenuBuilder implements Builder {
   protected readonly data: Json = { type: 3, options: [] };
   setCustomId(id: string) { assertRequiredText(id, "Select menu custom ID", 100); this.data.custom_id = id; return this; }
   setPlaceholder(value: string) { assertLength(value, "Select menu placeholder", 150); this.data.placeholder = value; return this; }
+  setDisabled(disabled = true) { this.data.disabled = disabled; return this; }
   setMinValues(value: number) { assertIntegerRange(value, "Select menu minimum values", 0, 25); this.data.min_values = value; return this; }
   setMaxValues(value: number) { assertIntegerRange(value, "Select menu maximum values", 1, 25); this.data.max_values = value; return this; }
   addOptions(...options: SelectOption[]) {

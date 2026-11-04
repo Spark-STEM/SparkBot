@@ -74,8 +74,11 @@ const args = [
   "--tunnel",
   "--persist-to",
   ".wrangler/local-d1",
+  "--show-interactive-dev-session",
   ...process.argv.slice(2),
 ];
+const portArgumentIndex = args.findIndex((argument) => argument === "--port" || argument === "-p");
+const localPort = portArgumentIndex >= 0 ? Number(args[portArgumentIndex + 1]) : 8787;
 const child = spawn(process.execPath, args, {
   cwd: root,
   stdio: ["inherit", "pipe", "pipe"],
@@ -84,6 +87,26 @@ const child = spawn(process.execPath, args, {
 
 let outputTail = "";
 let tunnelHandled = false;
+let explorerHandled = false;
+
+async function openExplorerWhenReady() {
+  const baseUrl = `http://localhost:${localPort}`;
+  for (let attempt = 0; attempt < 120 && !explorerHandled; attempt++) {
+    try {
+      const response = await fetch(baseUrl);
+      if (response.ok) {
+        explorerHandled = true;
+        const explorerUrl = `${baseUrl}/cdn-cgi/local/explorer`;
+        console.log(`\nLocal D1 Explorer: ${explorerUrl}`);
+        openUrl(explorerUrl);
+        return;
+      }
+    } catch {
+      // Wrangler has not finished starting the local server.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+}
 
 function createOutputFilter(destination) {
   let pending = "";
@@ -143,6 +166,15 @@ function openUrl(url) {
 function handleOutput(chunk, outputFilter) {
   const text = chunk.toString();
   outputFilter.write(text);
+  if (!explorerHandled) {
+    const localUrl = /https?:\/\/localhost:\d+\b/i.exec(text)?.[0];
+    if (localUrl) {
+      explorerHandled = true;
+      const explorerUrl = `${localUrl}/cdn-cgi/local/explorer`;
+      console.log(`\nLocal D1 Explorer: ${explorerUrl}`);
+      openUrl(explorerUrl);
+    }
+  }
   if (!tunnelHandled) {
     outputTail = (outputTail + text).slice(-4096);
     const tunnelUrl = /https:\/\/[a-z0-9-]+\.trycloudflare\.com\b/i.exec(outputTail)?.[0];
@@ -161,6 +193,7 @@ const stdoutFilter = createOutputFilter(process.stdout);
 const stderrFilter = createOutputFilter(process.stderr);
 child.stdout.on("data", (chunk) => handleOutput(chunk, stdoutFilter));
 child.stderr.on("data", (chunk) => handleOutput(chunk, stderrFilter));
+void openExplorerWhenReady();
 child.on("error", (error) => {
   console.error("Could not start Wrangler local development:", error.message);
   process.exitCode = 1;

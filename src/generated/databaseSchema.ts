@@ -3,14 +3,17 @@ export interface TableRows {
   "chapters": {
     "id": number;
     "country": string;
-    "region": string | null;
     "city": string;
     "name": string | null;
+    "discord_role_id": string | null;
+    "country_id": number | null;
+    "region_id": number | null;
   };
   "roles": {
     "id": number;
     "name": string;
     "description": string | null;
+    "discord_role_id": string | null;
   };
   "schools": {
     "id": number;
@@ -68,5 +71,17 @@ export interface TableRows {
   "session_members": {
     "session_id": number;
     "member_id": number;
+  };
+  "countries": {
+    "id": number;
+    "name": string;
+    "discord_role_id": string | null;
+    "region_ids": string;
+  };
+  "regions": {
+    "id": number;
+    "country_id": number;
+    "name": string;
+    "code": string;
   };
 }

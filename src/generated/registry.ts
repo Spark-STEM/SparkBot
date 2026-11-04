@@ -4,10 +4,11 @@ import type { Webhook } from "../webhooks/types.ts";
 import command0 from "../slashcommands/chapters.ts";
 import command1 from "../slashcommands/ping.ts";
 import command2 from "../slashcommands/programs.ts";
-import command3 from "../slashcommands/stats.ts";
+import command3 from "../slashcommands/register.ts";
+import command4 from "../slashcommands/stats.ts";
 import webhook0 from "../webhooks/pageDeployment.ts";
 
-export const commands: SlashCommand[] = [command0, command1, command2, command3];
+export const commands: SlashCommand[] = [command0, command1, command2, command3, command4];
 export const webhooks: Webhook[] = [webhook0];
 
 const webhookPaths = new Set<string>();

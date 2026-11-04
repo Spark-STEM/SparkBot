@@ -1,28 +1,44 @@
 import { attachCallback } from "./callbacks.ts";
 import type { ModalInteraction } from "../interactions/modal.ts";
-import { assertLength, type Builder } from "./core.ts";
+import { assertLength, assertRequiredText, type Builder } from "./core.ts";
 type Json = Record<string, unknown>;
 export const TextInputStyle = { Short: 1, Paragraph: 2 } as const;
-export class ModalBuilder implements Builder {
-  private readonly data: Json = { type: 9, components: [] };
+export class TextDisplayBuilder implements Builder {
+  private readonly data: Json = { type: 10 };
+  setContent(value: string) {
+    assertRequiredText(value, "Text display content", 4000);
+    this.data.content = value;
+    return this;
+  }
+  toJSON() {
+    if (typeof this.data.content !== "string") throw new Error("Text display content is required.");
+    return this.data;
+  }
+}
+export class ModalBuilder<HasCustomId extends boolean = false> implements Builder {
+  private readonly data: Json = { components: [] };
   setTitle(title: string) {
     if (!title.trim()) throw new Error("Modal title cannot be empty.");
     if (title.length > 45) throw new Error("Modal title cannot exceed 45 characters.");
     this.data.title = title;
     return this;
   }
-  setCustomId(id: string) {
+  setCustomId(id: string): this & ModalBuilder<true> {
     if (!id.trim()) throw new Error("Modal custom ID cannot be empty.");
     if (id.length > 100) throw new Error("Modal custom ID cannot exceed 100 characters.");
     this.data.custom_id = id;
     return this;
   }
   addComponents(...components: Builder[]) {
-    (this.data.components as Json[]).push(...components.map((component) => component.toJSON())); return this;
+    const serialized = components.map((component) => component.toJSON());
+    if (serialized.some((component) => component.type === 10)) {
+      throw new Error("Text display components are not supported in modals; use a label description.");
+    }
+    (this.data.components as Json[]).push(...serialized); return this;
   }
   addLabelComponents(...components: Builder[]) { return this.addComponents(...components); }
   onSubmit(callback: (interaction: ModalInteraction) => Promise<unknown>) { return attachCallback(this, callback); }
-  toJSON() {
+  toJSON(this: ModalBuilder<true>) {
     if (typeof this.data.title !== "string") throw new Error("Modal title is required.");
     if (typeof this.data.custom_id !== "string") throw new Error("Modal custom ID is required.");
     if (!(this.data.components as Json[]).length) throw new Error("Modal must contain at least one component.");
@@ -89,11 +105,18 @@ export class TextInputBuilder implements Builder {
 export class LabelBuilder implements Builder {
   private readonly data: Json = { type: 18 };
   setLabel(value: string) { this.data.label = value; return this; }
-  setDescription(value: string) { this.data.description = value; return this; }
+  setDescription(value: string) {
+    if (value.length > 100) throw new Error("Label description cannot exceed 100 characters.");
+    this.data.description = value;
+    return this;
+  }
   setTextInputComponent(component: Builder) { this.data.component = component.toJSON(); return this; }
   toJSON() {
     if (typeof this.data.label !== "string") throw new Error("Label text is required.");
     assertLength(this.data.label, "Label text", 45);
+    if (this.data.description !== undefined && typeof this.data.description !== "string") {
+      throw new Error("Label description must be text.");
+    }
     if (!this.data.component) throw new Error("Labels require a text input component.");
     return this.data;
   }

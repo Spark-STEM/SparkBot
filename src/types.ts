@@ -12,14 +12,19 @@ export interface Env {
   CLOUDFLARE_WEBHOOK_SECRET?: string;
   CLOUDFLARE_PAGES_POLICY_ID?: string;
 
-  // Optional comma-separated list of Discord user IDs with admin privileges
-  ADMIN_USER_IDS?: string;
+  // Ticket channel configuration
+  TICKET_CATEGORY_ID?: string;
+  TICKET_ADMIN_ROLE_ID?: string;
+  EXECUTIVE_ROLE_ID?: string;
+  CHAPTER_LEAD_ROLE_ID?: string;
+  CHAPTER_VICE_LEAD_ROLE_ID?: string;
 }
 
 export interface Chapter {
   id: number;
   name: string | null;
   city: string;
+  region_id: number | null;
   region: string | null;
   country: string;
 }

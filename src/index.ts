@@ -66,28 +66,46 @@ export default {
       );
     }
 
-    // Handle Slash Commands (InteractionType.ApplicationCommand = 2)
-    if (interaction.type === InteractionType.ApplicationCommand) {
-      const response = await handleSlashCommand(interaction, env);
-      return new Response(JSON.stringify(response), {
-        headers: { "Content-Type": "application/json" },
+    try {
+      // Handle Slash Commands (InteractionType.ApplicationCommand = 2)
+      if (interaction.type === InteractionType.ApplicationCommand) {
+        const response = await handleSlashCommand(interaction, env);
+        return new Response(JSON.stringify(response), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+
+      if (interaction.type === InteractionType.ApplicationCommandAutocomplete) {
+        return Response.json(await handleAutocomplete(interaction, env));
+      }
+
+      if (interaction.type === InteractionType.MessageComponent) {
+        const response = await handleComponent(interaction, env);
+        return Response.json(response);
+      }
+
+      // Handle Modal Submissions (InteractionType.ModalSubmit = 5)
+      if (interaction.type === InteractionType.ModalSubmit) {
+        const response = await handleModal(interaction, env);
+        return new Response(JSON.stringify(response), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+    } catch (error) {
+      console.error("Interaction handler failed", {
+        type: interaction.type,
+        name: "data" in interaction && typeof interaction.data === "object" && interaction.data
+          ? "custom_id" in interaction.data
+            ? interaction.data.custom_id
+            : "name" in interaction.data
+              ? interaction.data.name
+              : undefined
+          : undefined,
+        error,
       });
-    }
-
-    if (interaction.type === InteractionType.ApplicationCommandAutocomplete) {
-      return Response.json(await handleAutocomplete(interaction, env));
-    }
-
-    if (interaction.type === InteractionType.MessageComponent) {
-      const response = await handleComponent(interaction, env);
-      return Response.json(response);
-    }
-
-    // Handle Modal Submissions (InteractionType.ModalSubmit = 5)
-    if (interaction.type === InteractionType.ModalSubmit) {
-      const response = await handleModal(interaction, env);
-      return new Response(JSON.stringify(response), {
-        headers: { "Content-Type": "application/json" },
+      return Response.json({
+        type: InteractionResponseType.ChannelMessageWithSource,
+        data: { content: "Something went wrong while processing this interaction.", flags: 64 },
       });
     }
 

@@ -11,6 +11,7 @@ const wrangler = join(root, "node_modules", "wrangler", "bin", "wrangler.js");
 const wranglerConfig = await readFile(join(root, "wrangler.toml"), "utf8");
 const databaseName = /^\s*database_name\s*=\s*"([^"]+)"/m.exec(wranglerConfig)?.[1];
 if (!databaseName) throw new Error("Could not find database_name in wrangler.toml.");
+const useLocalDatabase = process.argv.includes("--local");
 
 function findClosingParenthesis(text, openIndex) {
   let depth = 0;
@@ -93,14 +94,14 @@ function parseDatabaseSchema(sql) {
   for (const match of sql.matchAll(createTable)) {
     const nameStart = match.index + match[0].length;
     const { name, rest } = readIdentifier(sql.slice(nameStart));
-    if (name === "d1_migrations") continue;
+    if (name === "d1_migrations" || name.startsWith("sqlite_sequence") || name === "_cf_METADATA") continue;
     const openIndex = nameStart + sql.slice(nameStart).indexOf("(");
     if (openIndex < nameStart) throw new Error(`Missing column list for D1 table "${name}".`);
     const closeIndex = findClosingParenthesis(sql, openIndex);
     const columns = {};
     for (const definition of splitDefinitions(sql.slice(openIndex + 1, closeIndex))) {
       const { name: columnName, rest: declaration } = readIdentifier(definition);
-      if (/^(?:CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)$/i.test(columnName)) continue;
+      if (/^(?:CONSTRAINT|PRIMARY|UNIQUE|CHECK|FOREIGN)(?:\(|$)/i.test(columnName)) continue;
       const typeDeclaration = declaration.split(
         /\s+(?=(?:NOT\s+NULL|PRIMARY\s+KEY|UNIQUE|CHECK\s*\(|DEFAULT|COLLATE|REFERENCES|GENERATED|AS)\b)/i,
         1,
@@ -137,26 +138,30 @@ async function generateDatabaseTypes() {
   const tempDir = await mkdtemp(join(root, ".wrangler", "schema-"));
   const sqlPath = join(tempDir, "schema.sql");
   try {
-    const result = spawnSync(process.execPath, [
-      wrangler,
-      "d1",
-      "export",
-      databaseName,
-      "--remote",
-      "--no-data",
-      "--skip-confirmation",
-      "--output",
-      sqlPath,
-    ], { cwd: root, encoding: "utf8" });
+    const command = useLocalDatabase
+      ? [
+        "d1", "execute", databaseName, "--local",
+        "--persist-to", join(root, ".wrangler", "local-d1"),
+        "--json", "--command",
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND sql IS NOT NULL",
+      ]
+      : [
+        "d1", "export", databaseName, "--remote", "--no-data",
+        "--skip-confirmation", "--output", sqlPath,
+      ];
+    const result = spawnSync(process.execPath, [wrangler, ...command], { cwd: root, encoding: "utf8" });
     if (result.error) throw result.error;
     if (result.status !== 0) {
       const diagnostics = `${result.stdout ?? ""}${result.stderr ?? ""}`
         .replace(/https:\/\/\S+/g, "[redacted URL]");
-      throw new Error(`Could not export the remote D1 schema (exit ${result.status}).\n${diagnostics}`);
+      throw new Error(`Could not export the ${useLocalDatabase ? "local" : "remote"} D1 schema (exit ${result.status}).\n${diagnostics}`);
     }
-    const tables = parseDatabaseSchema(await readFile(sqlPath, "utf8"));
+    const schema = useLocalDatabase
+      ? JSON.parse(result.stdout).flatMap((batch) => batch.results.map((row) => row.sql)).join("\n")
+      : await readFile(sqlPath, "utf8");
+    const tables = parseDatabaseSchema(schema);
     await writeFile(databaseSchemaOutput, toTypeScript(tables));
-    console.log(`Generated database types for ${Object.keys(tables).length} remote D1 tables.`);
+    console.log(`Generated database types for ${Object.keys(tables).length} ${useLocalDatabase ? "local" : "remote"} D1 tables.`);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }

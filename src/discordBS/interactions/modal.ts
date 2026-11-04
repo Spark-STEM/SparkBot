@@ -7,8 +7,8 @@ import { DiscordCollection } from "../types/collections.ts";
 export interface ModalField { id: string; value: string; }
 
 export class ModalFieldCollection extends DiscordCollection<ModalField> {
-  getTextInputValue(id: string): string {
-    return this.get(id)?.value ?? "";
+  getTextInputValue(id: string): string | null {
+    return this.get(id)?.value ?? null;
   }
 }
 

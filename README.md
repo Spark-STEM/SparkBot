@@ -9,6 +9,21 @@ Registration checks unlinked members for similar names before inserting. A priva
 Linking preserves the existing name, hours and relationships; the Discord server
 nickname uses the submitted name (with surrounding whitespace removed).
 
+Registration also requires applying `migrations/0005_registration_roles.sql` to
+add the Discord role ID columns, followed by
+`migrations/0006_registration_role_ids.sql` to configure the registration roles.
+Apply `migrations/0007_country_and_chapter_roles.sql` to create the country
+role mappings, relate chapters to countries, and configure chapter roles.
+Set
+`TICKET_CATEGORY_ID`, `TICKET_ADMIN_ROLE_ID`, `EXECUTIVE_ROLE_ID`,
+`CHAPTER_LEAD_ROLE_ID`, and `CHAPTER_VICE_LEAD_ROLE_ID` in the Worker
+environment. Ticket lifecycle state is held by the ticket message callbacks;
+individual tickets are not stored in D1.
+
+Apply the registration-role migration to local development with:
+`npx wrangler d1 migrations apply spark_org_data --local --persist-to .wrangler/local-d1`
+and apply it to the deployed database with `--remote`.
+
 Before deploying this change, apply `migrations/0003_registration_confirmation.sql`
 through your D1 migration workflow. Its unique Discord-ID index intentionally fails
 if existing rows share a non-null Discord ID. Check those conflicts first:

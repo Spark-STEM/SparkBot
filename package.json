@@ -1,24 +1,7 @@
 {
-  "name": "sparkbot",
-  "version": "0.1.0",
-  "module": "src/index.ts",
-  "type": "module",
-  "private": true,
-  "scripts": {
-    "prepare": "git config core.hooksPath .githooks",
-    "generate": "node scripts/generate-registry.mjs",
-    "generate:bun": "bun scripts/generate-registry.mjs",
-    "dev": "npm run generate && node --env-file-if-exists=.env scripts/dev-local.mjs",
-    "dev:bun": "bun run generate:bun && bun run scripts/dev-local.mjs",
-    "deploy": "npm run generate && wrangler deploy",
-    "deploy:bun": "bun run generate:bun && bunx wrangler deploy",
-    "test": "node --test",
-    "test:bun": "bun test",
-    "typecheck": "tsc --noEmit",
-    "audit:discordbs": "tsx scripts/audit-discordbs-api.ts",
-    "audit:discordbs:bun": "bun run scripts/audit-discordbs-api.ts",
-    "db:refresh-local": "node --env-file-if-exists=.env scripts/refresh-local-d1.mjs",
-    "db:refresh-local:bun": "bun run scripts/refresh-local-d1.mjs"
+  "dependencies": {
+    "discord-api-types": "^0.38.57",
+    "discord-interactions": "^4.4.0"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "^5.20261021.1",
@@ -26,11 +9,28 @@
     "tsx": "^4.23.15",
     "wrangler": "^4.151.3"
   },
+  "module": "src/index.ts",
+  "name": "sparkbot",
   "peerDependencies": {
     "typescript": "^7"
   },
-  "dependencies": {
-    "discord-api-types": "^0.38.57",
-    "discord-interactions": "^4.4.0"
-  }
+  "private": true,
+  "scripts": {
+    "audit:discordbs": "tsx scripts/audit-discordbs-api.ts",
+    "audit:discordbs:bun": "bun run scripts/audit-discordbs-api.ts",
+    "db:refresh-local": "node --env-file-if-exists=.env scripts/refresh-local-d1.mjs",
+    "db:refresh-local:bun": "bun run scripts/refresh-local-d1.mjs",
+    "deploy": "npm run generate && wrangler deploy",
+    "deploy:bun": "bun run generate:bun && bunx wrangler deploy",
+    "dev": "node scripts/generate-registry.mjs --local && node --env-file-if-exists=.env scripts/dev-local.mjs",
+    "dev:bun": "bun run scripts/generate-registry.mjs --local && bun run scripts/dev-local.mjs",
+    "generate": "node scripts/generate-registry.mjs",
+    "generate:bun": "bun scripts/generate-registry.mjs",
+    "prepare": "git config core.hooksPath .githooks",
+    "test": "node --test",
+    "test:bun": "bun test",
+    "typecheck": "tsc --noEmit"
+  },
+  "type": "module",
+  "version": "0.1.0"
 }

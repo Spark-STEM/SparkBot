@@ -8,11 +8,19 @@ const command: SlashCommand = {
   type: ApplicationCommandType.ChatInput,
   async run(client, interaction) {
     try {
-      const results = await client.env.database.select("chapters", {
-        columns: ["id", "name", "city", "region", "country"],
-        orderBy: "country",
-        limit: 10,
-      }).all();
+      const results = await client.env.database.query<{
+        id: number;
+        name: string | null;
+        city: string;
+        region: string | null;
+        country: string;
+      }>(
+        `SELECT chapters.id, chapters.name, chapters.city, regions.name AS region, chapters.country
+         FROM chapters
+         LEFT JOIN regions ON regions.id = chapters.region_id
+         ORDER BY chapters.country
+         LIMIT 10`,
+      ).all();
       await interaction.reply({
         embeds: [new EmbedBuilder()
           .setTitle(`Active Chapters (${results.length})`)

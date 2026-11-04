@@ -1,13 +1,7 @@
 import { assertLength, assertRequiredText, assertIntegerRange, type Builder } from "./core.ts";
+import { TextDisplayBuilder } from "./modals.ts";
+export { TextDisplayBuilder } from "./modals.ts";
 type Json = Record<string, unknown>;
-export class TextDisplayBuilder implements Builder {
-  private readonly data: Json = { type: 10 };
-  setContent(value: string) { assertRequiredText(value, "Text display content", 4000); this.data.content = value; return this; }
-  toJSON() {
-    if (typeof this.data.content !== "string") throw new Error("Text display content is required.");
-    return this.data;
-  }
-}
 export class SeparatorBuilder implements Builder {
   private readonly data: Json = { type: 14 };
   setSpacing(value: number) { assertIntegerRange(value, "Separator spacing", 1, 3); this.data.spacing = value; return this; }
@@ -28,6 +22,7 @@ export class SectionBuilder implements Builder {
 }
 export class ContainerBuilder implements Builder {
   private readonly data: Json = { type: 17, components: [] };
+  addTextDisplayComponent(component: TextDisplayBuilder) { return this.addComponents(component); }
   setAccentColor(value: number) {
     if (!Number.isInteger(value) || value < 0 || value > 0xffffff) throw new Error("Container accent color must be a 24-bit integer.");
     this.data.accent_color = value;
