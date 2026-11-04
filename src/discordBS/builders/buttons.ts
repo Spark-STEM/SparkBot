@@ -2,6 +2,12 @@ import { attachCallback } from "./callbacks.ts";
 import type { ComponentInteraction } from "../interactions/component.ts";
 import { assertLength, assertRequiredText, type Builder } from "./core.ts";
 type Json = Record<string, unknown>;
+type ActionRowComponentCount = [] | [unknown] | [unknown, unknown] | [unknown, unknown, unknown] |
+  [unknown, unknown, unknown, unknown] | [unknown, unknown, unknown, unknown, unknown];
+type WithinActionRowLimit<Existing extends unknown[], Added extends unknown[]> =
+  number extends Added["length"]
+    ? Added
+    : [...Existing, ...Added] extends ActionRowComponentCount ? Added : never;
 export const ButtonStyle = { Primary: 1, Secondary: 2, Success: 3, Danger: 4, Link: 5 } as const;
 export class ButtonBuilder implements Builder {
   private readonly data: Json = { type: 2 };
@@ -26,11 +32,13 @@ export class ButtonBuilder implements Builder {
     return this.data;
   }
 }
-export class ActionRowBuilder implements Builder {
+export class ActionRowBuilder<Components extends unknown[] = []> implements Builder {
   private readonly data: Json = { type: 1, components: [] };
-  addComponents(...components: Builder[]) {
+  addComponents<Added extends Builder[]>(
+    ...components: Added & WithinActionRowLimit<Components, Added>
+  ): ActionRowBuilder<[...Components, ...Added]> {
     (this.data.components as Json[]).push(...components.map((component) => component.toJSON()));
-    return this;
+    return this as unknown as ActionRowBuilder<[...Components, ...Added]>;
   }
   toJSON() {
     const components = this.data.components as Json[];

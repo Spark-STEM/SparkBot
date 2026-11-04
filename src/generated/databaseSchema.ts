@@ -1,5 +1,17 @@
 // Generated from the configured remote D1 database by scripts/generate-registry.mjs. Do not edit by hand.
 export interface TableRows {
+  "countries": {
+    "id": number;
+    "name": string;
+    "discord_role_id": string | null;
+    "region_ids": string;
+  };
+  "regions": {
+    "id": number;
+    "country_id": number;
+    "name": string;
+    "code": string;
+  };
   "chapters": {
     "id": number;
     "country": string;
@@ -71,17 +83,5 @@ export interface TableRows {
   "session_members": {
     "session_id": number;
     "member_id": number;
-  };
-  "countries": {
-    "id": number;
-    "name": string;
-    "discord_role_id": string | null;
-    "region_ids": string;
-  };
-  "regions": {
-    "id": number;
-    "country_id": number;
-    "name": string;
-    "code": string;
   };
 }

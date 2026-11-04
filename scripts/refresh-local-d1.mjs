@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { access, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { access, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -29,6 +29,21 @@ function runWrangler(args) {
   }
 }
 
+function reorderLocationTables(sql) {
+  const countriesMatch = sql.match(/CREATE TABLE countries \([\s\S]*?(?=CREATE TABLE regions \()/);
+  const regionsMatch = sql.match(/CREATE TABLE regions \([\s\S]*?(?=DELETE FROM sqlite_sequence;)/);
+  if (!countriesMatch || !regionsMatch) {
+    throw new Error("The D1 export is missing the countries or regions table definitions.");
+  }
+
+  const locationTables = `${countriesMatch[0]}${regionsMatch[0]}`;
+  const withoutLocationTables = sql
+    .replace(countriesMatch[0], "")
+    .replace(regionsMatch[0], "");
+  const pragmaEnd = withoutLocationTables.indexOf("\n") + 1;
+  return `${withoutLocationTables.slice(0, pragmaEnd)}${locationTables}${withoutLocationTables.slice(pragmaEnd)}`;
+}
+
 await mkdir(stateRoot, { recursive: true });
 await rm(exportPath, { force: true });
 await rm(refreshDatabase, { recursive: true, force: true });
@@ -45,6 +60,8 @@ console.log("Exporting remote D1 data. Stop local Wrangler dev before refreshing
   if (!exportInfo.isFile() || exportInfo.size === 0) {
     throw new Error("Wrangler produced an empty D1 export.");
   }
+  const exportSql = await readFile(exportPath, "utf8");
+  await writeFile(exportPath, reorderLocationTables(exportSql), "utf8");
 
   runWrangler([
     "d1", "execute", databaseName,

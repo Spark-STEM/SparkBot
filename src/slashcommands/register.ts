@@ -6,6 +6,7 @@ import {
     EmbedBuilder,
     ModalBuilder,
     StringSelectMenuBuilder,
+    TextDisplayBuilder,
     TextInputBuilder,
     TextInputStyle,
 } from "../discordBS/builders/index.ts";
@@ -49,11 +50,13 @@ type RegistrationWizard = {
     email: string | null;
     country: string | null;
     state: string | null;
+    stateCode: string | null;
     chapterId: number | null;
     specialRoleIds: number[];
     customLocation: {
         country: string;
         state: string;
+        stateCode: string;
         city: string;
         chapter: string;
     } | null;
@@ -75,6 +78,106 @@ function locationStates(wizard: RegistrationWizard): string[] {
         .filter((region) => region.country === wizard.country)
         .map((region) => region.name)
         .sort();
+}
+
+async function showLocationModal(wizard: RegistrationWizard, interaction: InteractionReply): Promise<void> {
+    const location = wizard.customLocation;
+    const modal = new ModalBuilder()
+        .setTitle("Register Location")
+        .setCustomId("registerLocationModal")
+        .addComponents(
+            new TextInputBuilder()
+                .setCustomId("country")
+                .setStyle(TextInputStyle.Short)
+                .setLabel("Country")
+                .setDescription("Please Use Title Case")
+                .setValue(location?.country ?? wizard.country ?? "")
+                .setMaxLength(100)
+                .setRequired(true),
+            new TextInputBuilder()
+                .setCustomId("state")
+                .setStyle(TextInputStyle.Short)
+                .setLabel("State/Region")
+                .setDescription("Leave empty if none")
+                .setValue(location?.state ?? wizard.state ?? "")
+                .setMaxLength(100)
+                .setRequired(false),
+            new TextInputBuilder()
+                .setCustomId("stateCode")
+                .setStyle(TextInputStyle.Short)
+                .setLabel("State/Region Code")
+                .setDescription("Leave empty if none")
+                .setValue(location?.stateCode ?? wizard.stateCode ?? "")
+                .setMaxLength(20)
+                .setRequired(false),
+            new TextInputBuilder()
+                .setCustomId("city")
+                .setStyle(TextInputStyle.Short)
+                .setLabel("City")
+                .setValue(location?.city ?? "")
+                .setMaxLength(100)
+                .setRequired(true),
+            new TextInputBuilder()
+                .setCustomId("chapter")
+                .setStyle(TextInputStyle.Short)
+                .setLabel("Chapter")
+                .setValue(location?.chapter ?? "")
+                .setMaxLength(100)
+                .setRequired(true),
+        );
+    modal.onSubmit(async (modalInteraction: ModalInteraction) => {
+        if (await respondToExpiredWizard(wizard, modalInteraction)) return;
+
+        const country = modalInteraction.fields.getTextInputValue("country")!.trim();
+        const state = modalInteraction.fields.getTextInputValue("state")?.trim() ?? "";
+        const stateCode = modalInteraction.fields.getTextInputValue("stateCode")?.trim() ?? "";
+        const chapter = modalInteraction.fields.getTextInputValue("chapter")!.trim();
+        const city = modalInteraction.fields.getTextInputValue("city")!.trim();
+
+        wizard.customLocation = { country, state, stateCode, city, chapter };
+        wizard.country = country;
+        wizard.state = state || null;
+        wizard.stateCode = stateCode || null;
+        wizard.chapterId = null;
+        wizard.reply = modalInteraction;
+        await modalInteraction.update(wizard.editingLocation
+            ? await confirmationView(wizard)
+            : rolesView(wizard));
+    });
+    await interaction.showModal(modal);
+}
+
+async function showChapterLeadEmailModal(
+    wizard: RegistrationWizard,
+    interaction: InteractionReply,
+): Promise<void> {
+    const emailInput = new TextInputBuilder()
+        .setCustomId("email")
+        .setStyle(TextInputStyle.Short)
+        .setLabel("Email")
+        .setMaxLength(320)
+        .setRequired(true);
+    if (wizard.email) emailInput.setValue(wizard.email);
+    const emailModal = new ModalBuilder()
+        .setTitle("Please enter your contact email")
+        .setCustomId("chapterLeadEmailModal")
+        .addComponents(
+            new TextDisplayBuilder().setContent(
+                "Chapter Leads must provide a contact email that will be publicly visible on our website.",
+            ),
+            emailInput,
+        );
+    emailModal.onSubmit(async (modalInteraction: ModalInteraction) => {
+        const email = modalInteraction.fields.getTextInputValue("email")?.trim() ?? "";
+        if (!email) {
+            await modalInteraction.reply({ content: "Email is required for Chapter Lead.", ephemeral: true });
+            return;
+        }
+        wizard.email = email;
+        wizard.reply = modalInteraction;
+        await modalInteraction.update(await confirmationView(wizard));
+    });
+    await interaction.showModal(emailModal);
 }
 
 function timeoutPayload() {
@@ -110,6 +213,7 @@ async function respondToExpiredWizard(
 function locationView(wizard: RegistrationWizard) {
     const locationMenu = new StringSelectMenuBuilder()
         .setPlaceholder("Select an option")
+        .setDisabled(false)
         .setMinValues(1)
         .setMaxValues(1);
 
@@ -159,54 +263,8 @@ function locationView(wizard: RegistrationWizard) {
         const value = interaction.values.first()?.value;
         if (!value) return;
         if (value === "not-listed") {
-
-            const modal = new ModalBuilder()
-                    .setTitle("Register Location")
-                    .setCustomId("registerLocationModal")
-                    .addComponents(
-                        new ActionRowBuilder().addComponents(new TextInputBuilder()
-                            .setCustomId("country")
-                            .setStyle(TextInputStyle.Short)
-                            .setLabel("Country (use Title Case)")
-                            .setValue(wizard.country ?? "")
-                            .setMaxLength(100)
-                            .setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder()
-                            .setCustomId("state")
-                            .setStyle(TextInputStyle.Short)
-                            .setLabel("State or region (leave empty if none)")
-                            .setValue(wizard.state ?? "")
-                            .setMaxLength(100)
-                            .setRequired(false)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder()
-                            .setCustomId("city")
-                            .setStyle(TextInputStyle.Short)
-                            .setLabel("City")
-                            .setMaxLength(100)
-                            .setRequired(true)),
-                        new ActionRowBuilder().addComponents(new TextInputBuilder()
-                            .setCustomId("chapter")
-                            .setStyle(TextInputStyle.Short)
-                            .setLabel("Chapter")
-                            .setMaxLength(100)
-                            .setRequired(true)),
-                    );
-            modal.onSubmit(async (modalInteraction: ModalInteraction) => {
-                if (await respondToExpiredWizard(wizard, modalInteraction)) return;
-
-                const country = modalInteraction.fields.getTextInputValue("country")!.trim();
-                const state = modalInteraction.fields.getTextInputValue("state")?.trim() ?? null;
-                const chapter = modalInteraction.fields.getTextInputValue("chapter")!.trim();
-                const city = modalInteraction.fields.getTextInputValue("city")!.trim();
-
-                wizard.customLocation = { country, state: (state ?? ""), city, chapter };
-                wizard.country = country;
-                wizard.state = state;
-                wizard.chapterId = null;
-                wizard.reply = modalInteraction;
-                await modalInteraction.update(rolesView(wizard));
-            });
-            await interaction.showModal(modal);
+            wizard.editingLocation = false;
+            await showLocationModal(wizard, interaction);
             return;
         }
 
@@ -214,11 +272,14 @@ function locationView(wizard: RegistrationWizard) {
         if (kind === "country") {
             wizard.country = selected ?? null;
             wizard.state = null;
+            wizard.stateCode = null;
             wizard.chapterId = null;
             if (!locationStates(wizard).length) wizard.locationLevel = "chapter";
         }
         if (kind === "state") {
             wizard.state = selected === "none" ? null : selected ?? null;
+            wizard.stateCode = wizard.regions.find((region) =>
+                region.country === wizard.country && region.name === wizard.state)?.code ?? null;
             wizard.chapterId = null;
         }
         if (kind === "chapter") {
@@ -244,9 +305,16 @@ function locationView(wizard: RegistrationWizard) {
         .setStyle(ButtonStyle.Secondary);
     backButton.onClick(async (interaction) => {
         if (await respondToExpiredWizard(wizard, interaction)) return;
-        wizard.locationLevel = wizard.locationLevel === "chapter"
-            ? locationStates(wizard).length ? "state" : "country"
-            : "country";
+        if (wizard.locationLevel === "chapter") {
+            wizard.locationLevel = locationStates(wizard).length ? "state" : "country";
+            wizard.chapterId = null;
+        } else {
+            wizard.locationLevel = "country";
+            wizard.country = null;
+            wizard.state = null;
+            wizard.stateCode = null;
+            wizard.chapterId = null;
+        }
         await interaction.update(locationView(wizard));
     });
 
@@ -298,35 +366,12 @@ function rolesView(wizard: RegistrationWizard) {
             .map((item) => Number(item.value.split(":")[1]))
             .filter(Number.isInteger);
         const selectedRoles = wizard.roles.filter((role) => wizard.specialRoleIds.includes(role.id));
-        if (selectedRoles.some((role) => role.name.trim().toLowerCase() === "chapter lead")) {
-            const emailInput = new TextInputBuilder()
-                .setCustomId("email")
-                .setStyle(TextInputStyle.Short)
-                .setLabel("Email")
-                .setMaxLength(320)
-                .setRequired(true);
-            if (wizard.email) emailInput.setValue(wizard.email);
-            const emailModal = new ModalBuilder()
-                .setTitle("Please use snake_case")
-                .setCustomId("chapterLeadEmailModal")
-                .addComponents(new ActionRowBuilder().addComponents(emailInput));
-            emailModal.onSubmit(async (modalInteraction: ModalInteraction) => {
-                const emailValue = modalInteraction.fields.getTextInputValue("email");
-                const email = emailValue?.trim() ?? "";
-                if (!email) {
-                    await modalInteraction.reply({
-                        content: "Email is required for Chapter Lead.",
-                        ephemeral: true,
-                    });
-                    return;
-                }
-                wizard.email = email;
-                wizard.reply = modalInteraction;
-                await modalInteraction.update(await confirmationView(wizard));
-            });
-            await interaction.showModal(emailModal);
+        const hasChapterLead = selectedRoles.some((role) => role.name.trim().toLowerCase() === "chapter lead");
+        if (hasChapterLead) {
+            await showChapterLeadEmailModal(wizard, interaction);
             return;
         }
+        wizard.email = null;
         await interaction.update(await confirmationView(wizard));
     });
 
@@ -335,7 +380,7 @@ function rolesView(wizard: RegistrationWizard) {
         .setStyle(ButtonStyle.Secondary);
     backButton.onClick(async (interaction) => {
         if (await respondToExpiredWizard(wizard, interaction)) return;
-        wizard.locationLevel = wizard.chapterId ? "chapter" : "country";
+        wizard.locationLevel = wizard.chapterId ? "chapter" : wizard.state ? "state" : "country";
         await interaction.update(locationView(wizard));
     });
 
@@ -390,20 +435,20 @@ function isDiscordId(value: unknown): value is string {
 async function ensureLocation(
     client: DiscordClient,
     guildId: string,
-    location: { country: string; state: string; city: string; chapter: string },
+    location: { country: string; state: string; stateCode?: string; city: string; chapter: string },
 ): Promise<{
     countryRoleId: string | null;
     chapterRoleId: string | null;
     chapterId: number;
 }> {
     let country = await client.env.database.query<DatabaseRow>(
-        "SELECT id, name, discord_role_id FROM countries WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1",
+        "SELECT id, name, discord_role_id, region_ids FROM countries WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1",
         location.country,
     ).first();
     if (!country) {
         await client.env.database.insert("countries", { name: location.country, discord_role_id: null }).run();
         country = await client.env.database.query<DatabaseRow>(
-            "SELECT id, name, discord_role_id FROM countries WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1",
+            "SELECT id, name, discord_role_id, region_ids FROM countries WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1",
             location.country,
         ).first();
     }
@@ -446,10 +491,43 @@ async function ensureLocation(
                 location.state,
             ).first()
             : null;
+        let regionId = region?.id ?? null;
+        if (location.state && !regionId) {
+            await client.env.database.insert("regions", {
+                country_id: Number(country.id),
+                name: location.state,
+                code: location.stateCode ?? "",
+            }).run();
+            regionId = (await client.env.database.query<{ id: number }>(
+                `SELECT id FROM regions
+                 WHERE country_id = ? AND lower(trim(name)) = lower(trim(?))
+                 LIMIT 1`,
+                Number(country.id),
+                location.state,
+            ).first())?.id ?? null;
+        }
+        if (regionId) {
+            let regionIds: number[] = [];
+            try {
+                const parsed = JSON.parse(String(country.region_ids ?? "[]"));
+                if (Array.isArray(parsed)) {
+                    regionIds = parsed.filter((id): id is number => Number.isInteger(id));
+                }
+            } catch (error) {
+                throw new Error("The country region mapping is invalid.", { cause: error });
+            }
+            if (!regionIds.includes(regionId)) {
+                await client.env.database.update(
+                    "countries",
+                    { region_ids: JSON.stringify([...regionIds, regionId]) },
+                    { id: Number(country.id) },
+                ).run();
+            }
+        }
         await client.env.database.insert("chapters", {
             country: location.country,
             country_id: Number(country.id),
-            region_id: region?.id ?? null,
+            region_id: regionId,
             city: location.city,
             name: location.chapter,
             discord_role_id: null,
@@ -473,7 +551,7 @@ async function ensureLocation(
 
     let chapterRoleId = isDiscordId(chapter.discord_role_id) ? chapter.discord_role_id : null;
     if (!chapterRoleId) {
-        const roleName = `${location.chapter}${location.state ? ` - ${location.state}` : ""}`;
+        const roleName = `${location.chapter}${location.stateCode ? ` - ${location.stateCode}` : ""}`;
         chapterRoleId = (await client.getGuild(guildId).createRole({ name: roleName })).id;
         await client.env.database.update(
             "chapters",
@@ -492,9 +570,13 @@ type RegistrationSpecialRequest = {
     location?: {
         country: string;
         state: string;
+        stateCode?: string;
         city: string;
         chapter: string;
     };
+    email?: string;
+    databaseRoleId?: number;
+    chapterId?: number;
 };
 
 function isExecutive(interaction: ComponentInteraction): boolean {
@@ -503,11 +585,12 @@ function isExecutive(interaction: ComponentInteraction): boolean {
 
 function specialRequestEmbed(
     requests: RegistrationSpecialRequest[],
-    confirmed: Set<number>,
+    statuses: Map<number, "pending" | "confirmed" | "denied">,
     index: number,
 ): EmbedBuilder {
     const request = requests[index];
     if (!request) throw new Error(`Special request index ${index} is out of range.`);
+    const status = statuses.get(index) ?? "pending";
     return new EmbedBuilder()
         .setTitle("Special request review")
         .setDescription([
@@ -516,9 +599,9 @@ function specialRequestEmbed(
             `**${request.label}**`,
             request.value,
             "",
-            confirmed.has(index) ? "Confirmed" : "Pending",
+            status === "confirmed" ? "Confirmed" : status === "denied" ? "Denied" : "Pending",
         ].join("\n"))
-        .setColor(confirmed.has(index) ? 0x57f287 : 0xfee75c);
+        .setColor(status === "confirmed" ? 0x57f287 : status === "denied" ? 0xed4245 : 0xfee75c);
 }
 
 async function sendRegistrationReviewMessages(options: {
@@ -531,6 +614,8 @@ async function sendRegistrationReviewMessages(options: {
     roleIds: string[];
     specialRequests: RegistrationSpecialRequest[];
     chapterApprovalRoleIds: string[];
+    memberId: number;
+    previousChapterId: number | null;
 }): Promise<void> {
     const channel = options.client.getGuild(options.guildId).getChannel(options.ticketId);
     if (options.chapterApprovalRoleIds.length) {
@@ -575,7 +660,7 @@ async function sendRegistrationReviewMessages(options: {
     }
     if (!options.specialRequests.length) return;
 
-    const confirmed = new Set<number>();
+    const statuses = new Map<number, "pending" | "confirmed" | "denied">();
     let index = 0;
     const back = new ButtonBuilder().setLabel("Back").setStyle(ButtonStyle.Secondary);
     const edit = new ButtonBuilder().setLabel("Edit").setStyle(ButtonStyle.Secondary);
@@ -584,10 +669,10 @@ async function sendRegistrationReviewMessages(options: {
     const deny = new ButtonBuilder().setLabel("Deny").setStyle(ButtonStyle.Danger);
     const render = () => {
         back.setDisabled(index === 0);
-        edit.setDisabled(Boolean(options.specialRequests[index]?.roleId));
+        edit.setDisabled(!options.specialRequests[index]?.location && !options.specialRequests[index]?.email);
         next.setDisabled(index === options.specialRequests.length - 1);
         return {
-            embeds: [specialRequestEmbed(options.specialRequests, confirmed, index)],
+            embeds: [specialRequestEmbed(options.specialRequests, statuses, index)],
             components: [new ActionRowBuilder().addComponents(back, edit, next, confirm, deny)],
         };
     };
@@ -612,10 +697,27 @@ async function sendRegistrationReviewMessages(options: {
     confirm.onClick(async (interaction) => {
         if (!await authorized(interaction)) return;
         const request = options.specialRequests[index];
+        if (statuses.get(index) === "confirmed") {
+            await interaction.update(render());
+            return;
+        }
         const member = options.client.getGuild(options.guildId).getMember(options.userId);
         await Promise.all((request?.roleIds ?? (request?.roleId ? [request.roleId] : []))
             .map((roleId) => member.addRole(roleId)));
-        confirmed.add(index);
+        if (request?.chapterId !== undefined) {
+            await options.client.env.database.update(
+                "members",
+                { chapter_id: request.chapterId },
+                { id: options.memberId },
+            ).run();
+        }
+        if (request?.databaseRoleId !== undefined) {
+            await options.client.env.database.insert("member_roles", {
+                member_id: options.memberId,
+                role_id: request.databaseRoleId,
+            }).run();
+        }
+        statuses.set(index, "confirmed");
         await interaction.update(render());
     });
     deny.onClick(async (interaction) => {
@@ -624,13 +726,26 @@ async function sendRegistrationReviewMessages(options: {
         const member = options.client.getGuild(options.guildId).getMember(options.userId);
         await Promise.all((request?.roleIds ?? (request?.roleId ? [request.roleId] : []))
             .map((roleId) => member.removeRole(roleId)));
-        confirmed.delete(index);
+        if (request?.databaseRoleId !== undefined) {
+            await options.client.env.database.delete("member_roles", {
+                member_id: options.memberId,
+                role_id: request.databaseRoleId,
+            }).run();
+        }
+        if (request?.location) {
+            await options.client.env.database.update(
+                "members",
+                { chapter_id: options.previousChapterId },
+                { id: options.memberId },
+            ).run();
+        }
+        statuses.set(index, "denied");
         await interaction.update(render());
     });
     edit.onClick(async (interaction) => {
         if (!await authorized(interaction)) return;
         const request = options.specialRequests[index];
-        if (!request || request.roleId) return;
+        if (!request || (!request.location && !request.email)) return;
         const inputs = request.location
             ? [
                 new TextInputBuilder()
@@ -643,9 +758,17 @@ async function sendRegistrationReviewMessages(options: {
                 new TextInputBuilder()
                     .setCustomId("state")
                     .setStyle(TextInputStyle.Short)
-                    .setLabel("State or region (leave empty if none)")
+                    .setLabel("State/Region")
+                    .setDescription("Leave empty if none")
                     .setValue(request.location.state)
                     .setMaxLength(100)
+                    .setRequired(false),
+                new TextInputBuilder()
+                    .setCustomId("stateCode")
+                    .setStyle(TextInputStyle.Short)
+                    .setLabel("State/Region Code (optional)")
+                    .setValue(request.location.stateCode ?? "")
+                    .setMaxLength(20)
                     .setRequired(false),
                 new TextInputBuilder()
                     .setCustomId("chapter")
@@ -662,7 +785,15 @@ async function sendRegistrationReviewMessages(options: {
                     .setMaxLength(100)
                     .setRequired(true),
             ]
-            : [new TextInputBuilder()
+            : request.email
+                ? [new TextInputBuilder()
+                    .setCustomId("email")
+                    .setStyle(TextInputStyle.Short)
+                    .setLabel("Email")
+                    .setValue(request.email)
+                    .setMaxLength(320)
+                    .setRequired(true)]
+                : [new TextInputBuilder()
                 .setCustomId("value")
                 .setStyle(TextInputStyle.Paragraph)
                 .setLabel(request.label)
@@ -672,17 +803,19 @@ async function sendRegistrationReviewMessages(options: {
         const modal = new ModalBuilder()
             .setTitle("Edit special request")
             .setCustomId("editSpecialRequestModal")
-            .addComponents(...inputs.map((input) => new ActionRowBuilder().addComponents(input)));
+            .addComponents(...inputs);
         modal.onSubmit(async (modalInteraction: ModalInteraction) => {
             const current = options.specialRequests[index];
             if (!current) throw new Error(`Special request index ${index} is out of range.`);
+            statuses.set(index, "pending");
             if (current.location) {
                 const country = modalInteraction.fields.getTextInputValue("country")!.trim();
                 const state = modalInteraction.fields.getTextInputValue("state")?.trim() ?? null;
+                const stateCode = modalInteraction.fields.getTextInputValue("stateCode")?.trim() ?? "";
                 const city = modalInteraction.fields.getTextInputValue("city")!.trim();
                 const chapter = modalInteraction.fields.getTextInputValue("chapter")!.trim();
 
-                current.location = { country, state: (state ?? ""), city, chapter };
+                current.location = { country, state: (state ?? ""), stateCode, city, chapter };
                 current.value = [
                     current.location.chapter,
                     current.location.city,
@@ -694,10 +827,26 @@ async function sendRegistrationReviewMessages(options: {
                     options.guildId,
                     current.location,
                 );
+                await options.client.env.database.update(
+                    "members",
+                    { chapter_id: locationRoles.chapterId },
+                    { id: options.memberId },
+                ).run();
                 current.roleIds = [locationRoles.countryRoleId, locationRoles.chapterRoleId]
                     .filter((roleId): roleId is string => Boolean(roleId));
             } else {
-                current.value = modalInteraction.fields.getTextInputValue("value")!.trim();
+                const email = modalInteraction.fields.getTextInputValue("email")?.trim();
+                if (email) {
+                    current.email = email;
+                    current.value = `${current.value.split("\nEmail:")[0]}\nEmail: ${email}`;
+                    await options.client.env.database.update(
+                        "members",
+                        { email },
+                        { id: options.memberId },
+                    ).run();
+                } else {
+                    current.value = modalInteraction.fields.getTextInputValue("value")!.trim();
+                }
             }
             await modalInteraction.update(render());
         });
@@ -707,15 +856,23 @@ async function sendRegistrationReviewMessages(options: {
 }
 
 async function confirmationView(wizard: RegistrationWizard) {
+    const hasChapterLead = wizard.specialRoleIds.some((roleId) =>
+        wizard.roles.find((role) => role.id === roleId)?.name.trim().toLowerCase() === "chapter lead",
+    );
     const editMenu = new StringSelectMenuBuilder()
         .setPlaceholder("Choose a section to edit")
         .setMinValues(1)
         .setMaxValues(1)
         .addOptions(
             { label: "Name", value: "name" },
-            { label: "Country", value: "country" },
-            { label: "State", value: "state" },
-            { label: "Chapter", value: "chapter" },
+            ...(wizard.customLocation
+                ? [{ label: "Location", value: "country" }]
+                : [
+                    { label: "Country", value: "country" },
+                    { label: "State", value: "state" },
+                    { label: "Chapter", value: "chapter" },
+                ]),
+            ...(hasChapterLead ? [{ label: "Email", value: "email" }] : []),
             { label: "Special roles", value: "roles" },
         );
     editMenu.onSelect(async (interaction) => {
@@ -732,7 +889,7 @@ async function confirmationView(wizard: RegistrationWizard) {
             const modal = new ModalBuilder()
                 .setTitle("Edit your name")
                 .setCustomId("editRegistrationName")
-                .addComponents(new ActionRowBuilder().addComponents(nameInput));
+                .addComponents(nameInput);
             modal.onSubmit(async (modalInteraction) => {
                 const name = modalInteraction.fields.getTextInputValue("name")!.trim();
                 if (!name) {
@@ -750,7 +907,16 @@ async function confirmationView(wizard: RegistrationWizard) {
             await interaction.update(rolesView(wizard));
             return;
         }
+        if (section === "email") {
+            await showChapterLeadEmailModal(wizard, interaction);
+            return;
+        }
         if (section === "country" || section === "state" || section === "chapter") {
+            if (wizard.customLocation) {
+                wizard.editingLocation = true;
+                await showLocationModal(wizard, interaction);
+                return;
+            }
             wizard.customLocation = null;
             wizard.locationLevel = section;
             wizard.editingLocation = true;
@@ -765,7 +931,7 @@ async function confirmationView(wizard: RegistrationWizard) {
         if (await respondToExpiredWizard(wizard, interaction)) return;
 
         let member = await wizard.client.env.database.query<DatabaseRow>(
-            "SELECT id FROM members WHERE discord_id = ? LIMIT 1",
+            "SELECT id, chapter_id FROM members WHERE discord_id = ? LIMIT 1",
             wizard.userId,
         ).first();
         if (!member) {
@@ -813,12 +979,13 @@ async function confirmationView(wizard: RegistrationWizard) {
                 discord_id: wizard.userId,
             }).run();
             member = await wizard.client.env.database.query<DatabaseRow>(
-                "SELECT id FROM members WHERE discord_id = ? LIMIT 1",
+                "SELECT id, chapter_id FROM members WHERE discord_id = ? LIMIT 1",
                 wizard.userId,
             ).first();
         }
 
-        const memberId = Number(member?.id);
+        if (!member) throw new Error("Unable to find the registered member.");
+        const memberId = Number(member.id);
         const customLocationRoles = wizard.customLocation
             ? await ensureLocation(wizard.client, wizard.guildId, wizard.customLocation)
             : null;
@@ -840,12 +1007,14 @@ async function confirmationView(wizard: RegistrationWizard) {
             "SELECT id, discord_role_id FROM roles WHERE lower(trim(name)) = lower(trim(?))",
             wizard.state,
         ).all();
-        const roleRows = [...specialRoleRows, ...locationRoleRows];
+        const roleRows = [...locationRoleRows];
+        const allRoleRows = [...specialRoleRows, ...roleRows];
         const volunteerRole = await wizard.client.env.database.query<DatabaseRow>(
             "SELECT id, discord_role_id FROM roles WHERE lower(trim(name)) = 'volunteer' LIMIT 1",
         ).first();
         if (!volunteerRole) throw new Error("The Volunteer role is missing from the roles table.");
         roleRows.push(volunteerRole);
+        allRoleRows.push(volunteerRole);
 
         await wizard.client.env.database.delete("member_roles", { member_id: memberId }).run();
         await wizard.client.env.database.insertMany(
@@ -860,7 +1029,7 @@ async function confirmationView(wizard: RegistrationWizard) {
                 "SELECT discord_role_id FROM countries WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1",
                 wizard.country,
             ).first();
-        const configuredDiscordRoleIds = roleRows
+        const configuredDiscordRoleIds = allRoleRows
             .map((row) => row.discord_role_id)
             .concat(chapter?.discord_role_id ?? null)
             .concat(customLocationRoles?.countryRoleId ?? null, customLocationRoles?.chapterRoleId ?? null)
@@ -896,6 +1065,7 @@ async function confirmationView(wizard: RegistrationWizard) {
                     label: "Custom location",
                     value: locationText(wizard),
                     location: wizard.customLocation,
+                    chapterId: customLocationRoles?.chapterId,
                     roleIds: [
                         customLocationRoles?.countryRoleId,
                         customLocationRoles?.chapterRoleId,
@@ -904,13 +1074,17 @@ async function confirmationView(wizard: RegistrationWizard) {
                 : []),
             ...wizard.specialRoleIds.map((roleId) => {
                 const role = wizard.roles.find((item) => item.id === roleId);
-                const configuredRoleId = roleRows.find((row) => Number(row.id) === roleId)?.discord_role_id;
+                const configuredRoleId = allRoleRows.find((row) => Number(row.id) === roleId)?.discord_role_id;
                 const discordRoleId = typeof configuredRoleId === "string" && isDiscordId(configuredRoleId)
                     ? configuredRoleId
                     : undefined;
                 return {
                     label: role?.name ?? "Special role",
                     value: role?.description ?? "Special role requested.",
+                    ...(role?.name.trim().toLowerCase() === "chapter lead" && wizard.email
+                        ? { email: wizard.email, value: `${role?.description ?? "Chapter lead requested."}\nEmail: ${wizard.email}` }
+                        : {}),
+                    databaseRoleId: roleId,
                     roleIds: typeof discordRoleId === "string" && discordRoleId
                         ? [discordRoleId]
                         : [],
@@ -945,6 +1119,8 @@ async function confirmationView(wizard: RegistrationWizard) {
             roleIds: configuredDiscordRoleIds,
             specialRequests,
             chapterApprovalRoleIds,
+            memberId,
+            previousChapterId: typeof member.chapter_id === "number" ? member.chapter_id : null,
         });
         await interaction.update({
             embeds: [new EmbedBuilder()
@@ -975,6 +1151,9 @@ async function confirmationView(wizard: RegistrationWizard) {
                             .join(", ")
                         : "Volunteer",
                 },
+                ...(hasChapterLead && wizard.email
+                    ? [{ name: "Chapter Lead email", value: wizard.email }]
+                    : []),
             )],
         components: [
             new ActionRowBuilder().addComponents(editMenu),
@@ -1018,13 +1197,13 @@ const command: SlashCommand = {
             const modal = new ModalBuilder()
                 .setTitle("Spark registration")
                 .setCustomId("registerInitialModal")
-                .addComponents(new ActionRowBuilder().addComponents(new TextInputBuilder()
+                .addComponents(new TextInputBuilder()
                     .setCustomId("name")
                     .setStyle(TextInputStyle.Short)
                     .setLabel("Full name")
                     .setMaxLength(200)
                     .setRequired(true)
-                ));
+                );
 
             const wizard: RegistrationWizard = {
                 client,
@@ -1039,6 +1218,7 @@ const command: SlashCommand = {
                 email: null,
                 country: null,
                 state: null,
+                stateCode: null,
                 chapterId: null,
                 specialRoleIds: [],
                 customLocation: null,

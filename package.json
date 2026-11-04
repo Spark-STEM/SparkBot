@@ -16,8 +16,6 @@
   },
   "private": true,
   "scripts": {
-    "audit:discordbs": "tsx scripts/audit-discordbs-api.ts",
-    "audit:discordbs:bun": "bun run scripts/audit-discordbs-api.ts",
     "db:refresh-local": "node --env-file-if-exists=.env scripts/refresh-local-d1.mjs",
     "db:refresh-local:bun": "bun run scripts/refresh-local-d1.mjs",
     "deploy": "npm run generate && wrangler deploy",

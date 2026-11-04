@@ -2,6 +2,12 @@ import { attachCallback } from "./callbacks.ts";
 import type { ModalInteraction } from "../interactions/modal.ts";
 import { assertLength, assertRequiredText, type Builder } from "./core.ts";
 type Json = Record<string, unknown>;
+type ModalComponentCount = [] | [unknown] | [unknown, unknown] | [unknown, unknown, unknown] |
+  [unknown, unknown, unknown, unknown] | [unknown, unknown, unknown, unknown, unknown];
+type WithinModalLimit<Existing extends unknown[], Added extends unknown[]> =
+  number extends Added["length"]
+    ? Added
+    : [...Existing, ...Added] extends ModalComponentCount ? Added : never;
 export const TextInputStyle = { Short: 1, Paragraph: 2 } as const;
 export class TextDisplayBuilder implements Builder {
   private readonly data: Json = { type: 10 };
@@ -15,7 +21,10 @@ export class TextDisplayBuilder implements Builder {
     return this.data;
   }
 }
-export class ModalBuilder<HasCustomId extends boolean = false> implements Builder {
+export class ModalBuilder<
+  HasCustomId extends boolean = false,
+  Components extends unknown[] = [],
+> implements Builder {
   private readonly data: Json = { components: [] };
   setTitle(title: string) {
     if (!title.trim()) throw new Error("Modal title cannot be empty.");
@@ -23,25 +32,35 @@ export class ModalBuilder<HasCustomId extends boolean = false> implements Builde
     this.data.title = title;
     return this;
   }
-  setCustomId(id: string): this & ModalBuilder<true> {
+  setCustomId(id: string): this & ModalBuilder<true, Components> {
     if (!id.trim()) throw new Error("Modal custom ID cannot be empty.");
     if (id.length > 100) throw new Error("Modal custom ID cannot exceed 100 characters.");
     this.data.custom_id = id;
     return this;
   }
-  addComponents(...components: Builder[]) {
+  addComponents<Added extends Builder[]>(
+    ...components: Added & WithinModalLimit<Components, Added>
+  ): ModalBuilder<HasCustomId, [...Components, ...Added]> {
     const serialized = components.map((component) => component.toJSON());
-    if (serialized.some((component) => component.type === 10)) {
-      throw new Error("Text display components are not supported in modals; use a label description.");
-    }
-    (this.data.components as Json[]).push(...serialized); return this;
+    (this.data.components as Json[]).push(...serialized.map((component) =>
+      component.type === 1 || component.type === 10 || component.type === 18
+        ? component
+        : { type: 1, components: [component] },
+    ));
+    return this as unknown as ModalBuilder<HasCustomId, [...Components, ...Added]>;
   }
-  addLabelComponents(...components: Builder[]) { return this.addComponents(...components); }
+  addLabelComponents<Added extends Builder[]>(
+    ...components: Added & WithinModalLimit<Components, Added>
+  ) {
+    return (this as ModalBuilder<HasCustomId, Components>).addComponents(...components as Builder[]);
+  }
   onSubmit(callback: (interaction: ModalInteraction) => Promise<unknown>) { return attachCallback(this, callback); }
-  toJSON(this: ModalBuilder<true>) {
+  toJSON(this: ModalBuilder<true, Components>) {
     if (typeof this.data.title !== "string") throw new Error("Modal title is required.");
     if (typeof this.data.custom_id !== "string") throw new Error("Modal custom ID is required.");
-    if (!(this.data.components as Json[]).length) throw new Error("Modal must contain at least one component.");
+    const components = this.data.components as Json[];
+    if (!components.length) throw new Error("Modal must contain at least one component.");
+    if (components.length > 5) throw new Error("Modals cannot contain more than 5 components.");
     return this.data;
   }
 }
@@ -64,6 +83,11 @@ export class TextInputBuilder implements Builder {
     if (!label.trim()) throw new Error("Text input label cannot be empty.");
     if (label.length > 45) throw new Error("Text input label cannot exceed 45 characters.");
     this.data.label = label;
+    return this;
+  }
+  setDescription(description: string) {
+    if (description.length > 100) throw new Error("Text input description cannot exceed 100 characters.");
+    this.data.description = description;
     return this;
   }
   setPlaceholder(value: string) {
@@ -95,9 +119,21 @@ export class TextInputBuilder implements Builder {
     if (typeof this.data.custom_id !== "string") throw new Error("Text input custom ID is required.");
     if (typeof this.data.style !== "number") throw new Error("Text input style is required.");
     if (typeof this.data.label !== "string") throw new Error("Text input label is required.");
+    if (this.data.description !== undefined && typeof this.data.description !== "string") {
+      throw new Error("Text input description must be text.");
+    }
     if (this.data.min_length !== undefined && this.data.max_length !== undefined &&
       (this.data.min_length as number) > (this.data.max_length as number)) {
       throw new Error("Text input minimum length cannot exceed maximum length.");
+    }
+    if (typeof this.data.description === "string") {
+      const { description, label, ...component } = this.data;
+      return {
+        type: 18,
+        label,
+        description,
+        component,
+      };
     }
     return this.data;
   }
