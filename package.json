@@ -25,7 +25,7 @@
     "generate": "node scripts/generate-registry.mjs",
     "generate:bun": "bun scripts/generate-registry.mjs",
     "prepare": "git config core.hooksPath .githooks",
-    "test": "node --test",
+    "test": "node --import tsx --test tests/*.test.ts",
     "test:bun": "bun test",
     "typecheck": "tsc --noEmit"
   },

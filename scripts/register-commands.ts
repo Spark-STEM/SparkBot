@@ -1,6 +1,4 @@
-import { commands } from "../src/generated/registry.ts";
-
-const commandDefinitions = commands.map(({ run: _run, ...definition }) => definition);
+import { commandDefinitions } from "../src/handler/commands.ts";
 
 try {
   const isLocal = process.argv.includes("--local");

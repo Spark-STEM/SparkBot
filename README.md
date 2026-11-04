@@ -163,3 +163,50 @@ characters and disables all mentions.
 References: [Cloudflare generic webhooks](https://developers.cloudflare.com/notifications/get-started/configure-webhooks/),
 [payload schema](https://developers.cloudflare.com/notifications/reference/webhook-payload-schema/),
 [Discord Create Message](https://docs.discord.com/developers/resources/message#create-message).
+
+### Executive database browser
+
+Use `/database table:<name>` on the test bot or deployed bot. Every response is
+ ephemeral and every interaction checks the executive role (`EXECUTIVE_ROLE_ID`,
+ falling back to the existing executive role ID used by the other commands).
+
+- Autocomplete uses `databaseTables` in `src/generated/databaseSchema.ts`, refreshed
+  by the existing generation step on dev/deploy. Pure junction tables (two or more
+  foreign-key relationships, with every column a foreign-key column) are omitted.
+  Current exclusions are `member_roles` and `session_members`.
+- The overview displays eight rows and four columns at a time. Back/Next navigate
+  rows; the column buttons expose the rest of wide tables. Filter changes visible
+  columns using modal checkboxes. Select accepts the primary key (a JSON array for
+  composite keys) and shows full row text across bounded pages.
+- Find performs case-insensitive substring matching on the selected column. A
+  single match opens directly; Back returns to the search results. Clear search
+  restores the full table. SQLite's built-in case folding is ASCII-oriented.
+- Add/Edit collect up to five fields per modal. Continue opens the next step;
+  Cancel discards the draft. Only the final submission writes the row. Generated
+  columns and automatic integer IDs are omitted; primary keys cannot be edited.
+- Blank Add fields use database defaults (or NULL for optional columns). Blank
+  Edit fields preserve their existing values. `NULL` explicitly clears a nullable
+  field; `EMPTY` stores empty text. Prefix literal `NULL`, `EMPTY`, or a leading
+  backslash with a backslash. Numeric fields are validated before writing.
+- Discord limits input values to 4,000 characters. Longer existing values are
+  displayed in full in the row view and left blank in edit forms; leaving them
+  blank preserves them. Binary values require the database editor. Find supports
+  up to 25 columns and Filter up to 50 columns per table.
+- Delete requires a separate confirmation. Edit/Delete check the original row
+  values so concurrent changes are not silently overwritten. Reopen `/database`
+  after a conflict or expired session.
+
+Session state and unfinished drafts are stored in the private
+`_spark_database_sessions` D1 table, created on first use. Sessions are scoped to
+user and guild, expire after one hour of inactivity, and expired entries are
+cleaned up when a browser is opened. Internal `_spark_` tables never appear in
+schema generation or autocomplete. No additional binding or secret is needed.
+
+For local testing, run `bunx wrangler login`, `bun db:refresh-local`, then
+`npm run dev`. Paste the copied tunnel URL into the **test application's**
+Interactions Endpoint URL in the Discord developer portal and save it. The dev
+script registers commands on the test application and uses only local D1. Restart
+dev and update the endpoint when the one-hour tunnel expires.
+
+Run `npm test` for SQLite-backed interaction tests and `npm run typecheck` for
+TypeScript validation. Tests use disposable databases and do not touch remote D1.

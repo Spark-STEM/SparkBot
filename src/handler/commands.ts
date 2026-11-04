@@ -5,7 +5,11 @@ import { CommandInteraction } from "../discordBS/interactions/slash.ts";
 import { DiscordClient } from "../discordBS/index.ts";
 import { commands } from "../generated/registry.ts";
 
-export const commandDefinitions = commands.map(({ run, ...definition }) => definition);
+export const commandDefinitions = commands.map(({ run, ...definition }) => ({
+  ...definition, options: definition.options?.map(({ autocomplete, ...option }) => ({
+    ...option, ...(autocomplete ? { autocomplete: true } : {}),
+  })),
+}));
 
 function findFocused(options: readonly { name: string; focused?: boolean; options?: readonly any[] }[]): string | undefined {
   for (const option of options) {
@@ -42,7 +46,7 @@ export async function handleSlashCommand(interaction: APIApplicationCommandInter
 export async function handleAutocomplete(interaction: APIApplicationCommandAutocompleteInteraction, env: Env): Promise<APIInteractionResponse> {
   const command = commands.find(({ name }) => name === interaction.data.name);
   const focused = findFocused(interaction.data.options ?? []);
-  const option = focused && command && findOption(interaction.data.options ?? [], focused);
+  const option = focused && command && findOption(command.options ?? [], focused);
   if (!option?.autocomplete) {
     return { type: InteractionResponseType.ApplicationCommandAutocompleteResult, data: { choices: [] } };
   }

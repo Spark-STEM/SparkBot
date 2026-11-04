@@ -90,11 +90,12 @@ function sqliteType(declaration) {
 
 function parseDatabaseSchema(sql) {
   const tables = {};
+  const browserTables = [];
   const createTable = /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?/ig;
   for (const match of sql.matchAll(createTable)) {
     const nameStart = match.index + match[0].length;
     const { name, rest } = readIdentifier(sql.slice(nameStart));
-    if (name === "d1_migrations" || name.startsWith("sqlite_sequence") || name === "_cf_METADATA") continue;
+    if (name.startsWith("_spark_") || name === "d1_migrations" || name.startsWith("sqlite_sequence") || name === "_cf_METADATA") continue;
     const openIndex = nameStart + sql.slice(nameStart).indexOf("(");
     if (openIndex < nameStart) throw new Error(`Missing column list for D1 table "${name}".`);
     const closeIndex = findClosingParenthesis(sql, openIndex);
@@ -109,15 +110,33 @@ function parseDatabaseSchema(sql) {
       const required = /\bNOT\s+NULL\b/i.test(declaration) || /\bPRIMARY\s+KEY\b/i.test(declaration);
       columns[columnName] = `${sqliteType(typeDeclaration)}${required ? "" : " | null"}`;
     }
-    if (Object.keys(columns).length) tables[name] = columns;
+    if (Object.keys(columns).length) {
+      tables[name] = columns;
+      const definitions = splitDefinitions(sql.slice(openIndex + 1, closeIndex));
+      const foreignColumns = new Set();
+      let relationships = 0;
+      for (const definition of definitions) {
+        const foreign = /FOREIGN\s+KEY\s*\(([^)]+)\)/i.exec(definition);
+        if (foreign) {
+          relationships++;
+          for (const column of splitDefinitions(foreign[1])) foreignColumns.add(readIdentifier(column).name);
+        } else if (/\bREFERENCES\b/i.test(definition)) {
+          relationships++;
+          foreignColumns.add(readIdentifier(definition).name);
+        }
+      }
+      // Pure relationship tables consist entirely of foreign-key columns.
+      const junction = relationships >= 2 && Object.keys(columns).every(column => foreignColumns.has(column));
+      if (!junction) browserTables.push(name);
+    }
   }
   if (!Object.keys(tables).length) {
     throw new Error("No D1 tables were found in the remote schema export.");
   }
-  return tables;
+  return { tables, browserTables };
 }
 
-function toTypeScript(tables) {
+function toTypeScript({ tables, browserTables }) {
   const lines = [
     "// Generated from the configured remote D1 database by scripts/generate-registry.mjs. Do not edit by hand.",
     "export interface TableRows {",
@@ -129,7 +148,7 @@ function toTypeScript(tables) {
     }
     lines.push("  };");
   }
-  lines.push("}");
+  lines.push("}", `export const databaseTables = ${JSON.stringify(browserTables)} as const;`);
   return `${lines.join("\n")}\n`;
 }
 
@@ -161,7 +180,7 @@ async function generateDatabaseTypes() {
       : await readFile(sqlPath, "utf8");
     const tables = parseDatabaseSchema(schema);
     await writeFile(databaseSchemaOutput, toTypeScript(tables));
-    console.log(`Generated database types for ${Object.keys(tables).length} ${useLocalDatabase ? "local" : "remote"} D1 tables.`);
+    console.log(`Generated database types for ${Object.keys(tables.tables).length} ${useLocalDatabase ? "local" : "remote"} D1 tables.`);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
   }
