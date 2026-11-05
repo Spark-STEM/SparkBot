@@ -87,13 +87,13 @@ export interface RequestDiagnostic {
 }
 
 /** Performs authenticated Discord REST requests in a Cloudflare Worker. */
-export class DiscordRestClient {
+export class DiscordRestClient<E extends Pick<Env, "DISCORD_TOKEN"> = Env> {
   private globalRateLimitUntil = 0;
   private readonly inFlight = new Map<string, Promise<unknown>>();
   private readonly rateLimitBuckets = new Map<string, RateLimitState>();
   private readonly diagnostics: RequestDiagnostic[] = [];
   constructor(
-    readonly env: Env,
+    readonly env: E,
     readonly commands: readonly SlashCommand[],
     private readonly middleware: readonly RestMiddleware[] = [],
   ) {}

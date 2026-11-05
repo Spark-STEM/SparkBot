@@ -8,3 +8,5 @@ export * from "./message-components-v2.ts";
 export * from "./attachments.ts";
 export * from "./polls.ts";
 export * from "./mentions.ts";
+
+export * from "./checkboxes.ts";

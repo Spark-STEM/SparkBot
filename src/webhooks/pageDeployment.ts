@@ -1,3 +1,5 @@
+import { DiscordRestClient } from "../discordBS/rest/client.ts";
+import { DiscordRoutes } from "../discordBS/rest/routes.ts";
 import { timingSafeEqual } from "node:crypto";
 import type { Env } from "../types.ts";
 import type { Webhook } from "./types.ts";
@@ -75,19 +77,13 @@ export async function handlePagesWebhook(request: Request, env: Env): Promise<Re
   }
 
   try {
-    const response = await fetch(`https://discord.com/api/v10/channels/${CHANNEL_ID}/messages`, {
-      method: "POST",
-      headers: { Authorization: `Bot ${env.DISCORD_TOKEN}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
+    const client = new DiscordRestClient(env, []);
+    await client.request("POST", DiscordRoutes.channelMessages(CHANNEL_ID), {
         content: `**Website deployment update**\nhttps://spark-stem.pages.dev\n\n${payload.text}`.slice(0, 2000),
         allowed_mentions: { parse: [] },
         nonce: `${payload.ts}`,
         enforce_nonce: true,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    });
-    await response.body?.cancel();
-    if (!response.ok) throw new Error(`Discord message failed (${response.status})`);
+      }, {}, { timeoutMs: 10_000, retries: 0 });
     return Response.json({ status: "sent" });
   } catch {
     console.error(JSON.stringify({ event: "pages_notification_failed", timestamp: payload.ts }));

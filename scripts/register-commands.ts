@@ -1,3 +1,4 @@
+import { DiscordRestClient } from "../src/discordBS/rest/client.ts";
 import { commandDefinitions } from "../src/handler/commands.ts";
 
 try {
@@ -14,15 +15,8 @@ try {
     const prefix = isLocal ? "LOCAL_" : "";
     throw new Error(`${prefix}DISCORD_APPLICATION_ID and ${prefix}DISCORD_TOKEN are required`);
   }
-  const endpoint = `https://discord.com/api/v10/applications/${applicationId}/commands`;
-  const response = await fetch(endpoint, {
-    method: "PUT",
-    headers: { Authorization: `Bot ${token}`, "Content-Type": "application/json" },
-    body: JSON.stringify(commandDefinitions),
-  });
-  if (!response.ok) {
-    throw new Error(`Discord API returned ${response.status}: ${await response.text()}`);
-  }
+  const client = new DiscordRestClient({ DISCORD_TOKEN: token }, []);
+  await client.request("PUT", `/applications/${applicationId}/commands`, JSON.stringify(commandDefinitions));
   console.log(`Registered ${commandDefinitions.length} ${isLocal ? "local " : ""}slash commands.`);
 } catch (error) {
   console.error("Failed to register slash commands:", error);

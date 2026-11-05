@@ -1,19 +1,12 @@
-import type { APIApplicationCommandInteraction, APIApplicationCommandAutocompleteInteraction, APIMessageComponentInteraction, APIModalSubmitInteraction, APIInteractionResponse, APIActionRowComponent, APIButtonComponent, APIModalInteractionResponseCallbackComponent, APIInteractionResponseCallbackData } from 'discord-api-types/v10';
+import type { APIApplicationCommandInteraction, APIApplicationCommandAutocompleteInteraction, APIMessageComponentInteraction, APIModalSubmitInteraction, APIInteractionResponse, APIInteractionResponseCallbackData } from 'discord-api-types/v10';
+import { buildDraftMessage, buildDeleteMessage, buildRowMessage, buildTableMessage, buildRowForm, buildSelectRowModal, buildSearchModal, buildColumnFilterModal, errorResponse, initialResponse, updateResponse } from './database-browser-ui.ts';
+export { display, tableText, fullRowChunks } from './database-browser-ui.ts';
 import { databaseTables } from '../generated/databaseSchema.ts';
 import type { Env } from '../types.ts';
 
 type Interaction = APIApplicationCommandInteraction | APIMessageComponentInteraction | APIModalSubmitInteraction;
-type Value = string | number | null;
-type Row = Record<string, Value>;
-export interface Column { name: string; type: string; notnull: number; dflt_value: string | null; pk: number; hidden: number }
-interface Schema { columns: Column[]; keys: string[] }
-interface State {
-  table: string; page: number; visible: string[]; search?: { column: string; value: string };
-  focus?: Value[]; textPage: number; columnPage: number;
-  draft?: { mode: 'add' | 'edit'; step: number; values: Row; original?: Row };
-  deleting?: Row;
-}
-interface Session { id: string; owner: string; guild: string; revision: number; state: State }
+import type { Value, Row, Column, Schema, Session } from './database-browser-types.ts';
+export type { Column } from './database-browser-types.ts';
 const sessionTable = '_spark_database_sessions';
 const pageSize = 8;
 const ttl = 60 * 60 * 1000;
@@ -22,7 +15,6 @@ export function authorized(raw: Interaction | APIApplicationCommandAutocompleteI
   return Boolean(raw.guild_id && raw.member?.roles.includes(env.EXECUTIVE_ROLE_ID || '1334030809577029713'));
 }
 const userId = (raw: Interaction) => (raw.member?.user ?? raw.user)?.id;
-const errorResponse = (content: string): APIInteractionResponse => ({ type: 4, data: { content, flags: 64, allowed_mentions: { parse: [] } } });
 class InputError extends Error {}
 function assert(condition: unknown, message: string): asserts condition { if (!condition) throw new InputError(message); }
 
@@ -42,25 +34,6 @@ async function initialize(env: Env) {
   await env.SPARK_DB.prepare(`CREATE TABLE IF NOT EXISTS ${sessionTable} (id TEXT PRIMARY KEY, owner TEXT NOT NULL, guild TEXT NOT NULL, revision INTEGER NOT NULL, expires INTEGER NOT NULL, state TEXT NOT NULL)`).run();
   await env.SPARK_DB.prepare(`DELETE FROM ${sessionTable} WHERE expires < ?`).bind(Date.now()).run();
 }
-const customId = (s: Session, action: string) => `db:${s.id}:${s.revision}:${action}`;
-function button(s: Session, action: string, label: string, disabled = false, style: 1 | 2 | 3 | 4 = 2): APIButtonComponent {
-  return { type: 2, style, custom_id: customId(s, action), label, disabled };
-}
-const buttons = (...components: APIButtonComponent[]): APIActionRowComponent<APIButtonComponent> => ({ type: 1, components });
-function message(s: Session, description: string, components: APIActionRowComponent<APIButtonComponent>[], footer = ''): APIInteractionResponseCallbackData {
-  return { content: '', embeds: [{ title: s.state.table.slice(0, 256), description, color: 0x5865f2, ...(footer ? { footer: { text: footer.slice(0, 2048) } } : {}) }], components, allowed_mentions: { parse: [] } };
-}
-export function display(value: unknown): string {
-  if (value === null) return 'NULL';
-  return String(value).replaceAll('`', 'ˋ').replace(/[\r\n\t]/g, ' ').replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
-}
-const shorten = (value: string, size: number) => value.length > size ? value.slice(0, size - 1) + '…' : value;
-export function tableText(columns: string[], rows: Row[]): string {
-  if (!columns.length) return 'All columns hidden. Use Filter to show columns.';
-  const widths = columns.map(c => Math.min(24, Math.max(4, c.length, ...rows.map(r => display(r[c]).length))));
-  const line = (values: string[]) => values.map((v, i) => shorten(v, widths[i]!).padEnd(widths[i]!)).join(' | ');
-  return '```text\n' + [line(columns), widths.map(w => '-'.repeat(w)).join('-+-'), ...rows.map(r => line(columns.map(c => display(r[c]))))].join('\n') + '\n```';
-}
 function predicate(keys: string[], values: Value[]) {
   assert(values.length === keys.length, 'Invalid row identifier.');
   return { sql: keys.map(k => `${quote(k)} IS ?`).join(' AND '), params: values };
@@ -73,31 +46,13 @@ async function getRow(env: Env, s: Session, meta: Schema): Promise<Row> {
   assert(row, 'This row no longer exists. Use Back to return to the table.');
   return row;
 }
-export function fullRowChunks(row: Row, columns: string[]): string[] {
-  const chunks: string[] = [];
-  for (const column of columns) {
-    const raw = row[column] === null ? 'NULL' : String(row[column] ?? '');
-    const value = raw.replaceAll('`', 'ˋ');
-    const prefix = `${column}\n${'-'.repeat(Math.min(column.length, 60))}\n`;
-    const size = 3400 - prefix.length;
-    for (let start = 0; start < Math.max(1, value.length); start += size) chunks.push('```text\n' + prefix + value.slice(start, start + size) + '\n```');
-  }
-  // Combine small columns into bounded pages.
-  return chunks.reduce<string[]>((pages, chunk) => {
-    if (pages.length && pages[pages.length - 1]!.length + chunk.length + 1 <= 3800) pages[pages.length - 1] += '\n' + chunk;
-    else pages.push(chunk);
-    return pages;
-  }, []);
-}
 async function render(env: Env, s: Session, meta: Schema): Promise<APIInteractionResponseCallbackData> {
   const st = s.state;
-  if (st.draft) return message(s, `**${st.draft.mode === 'add' ? 'Add' : 'Edit'} row — draft saved**\nContinue to step ${st.draft.step + 1}. No changes have been written yet.`, [buttons(button(s, 'continue', 'Continue', false, 1), button(s, 'cancel', 'Cancel'))]);
-  if (st.deleting) return message(s, `**Delete this row permanently?**\nRow ID: ${display(JSON.stringify(st.focus))}\nThis cannot be undone. Related records may also be removed by database cascade rules.`, [buttons(button(s, 'confirm', 'Delete permanently', false, 4), button(s, 'cancel', 'Cancel'))]);
+  if (st.draft) return buildDraftMessage(s);
+  if (st.deleting) return buildDeleteMessage(s);
   if (st.focus) {
     const row = await getRow(env, s, meta);
-    const chunks = fullRowChunks(row, meta.columns.map(c => c.name));
-    st.textPage = Math.max(0, Math.min(st.textPage, chunks.length - 1));
-    return message(s, chunks[st.textPage] || 'Empty row.', [buttons(button(s, 'back', 'Back'), button(s, 'edit', 'Edit', false, 1), button(s, 'delete', 'Delete', false, 4)), buttons(button(s, 'textPrev', 'Previous text', st.textPage === 0), button(s, 'textNext', 'Next text', st.textPage >= chunks.length - 1))], `Row ${JSON.stringify(st.focus)} • Text ${st.textPage + 1}/${chunks.length}`);
+    return buildRowMessage(s, row, meta);
   }
   const filter = st.search ? ` WHERE instr(lower(CAST(${quote(st.search.column)} AS TEXT)), lower(?)) > 0` : '';
   const params = st.search ? [st.search.value] : [];
@@ -108,28 +63,15 @@ async function render(env: Env, s: Session, meta: Schema): Promise<APIInteractio
   const columnPages = Math.max(1, Math.ceil(st.visible.length / 4));
   st.columnPage = Math.max(0, Math.min(st.columnPage, columnPages - 1));
   const visible = st.visible.slice(st.columnPage * 4, st.columnPage * 4 + 4);
-  const controls = [buttons(button(s, 'prev', 'Back', st.page === 0), button(s, 'select', 'Select', !results.length), button(s, 'next', 'Next', st.page >= pages - 1)), buttons(button(s, 'add', 'Add', false, 3), button(s, 'find', 'Find'), button(s, 'filter', 'Filter'))];
-  if (columnPages > 1 || st.search) controls.push(buttons(button(s, 'colPrev', 'Previous columns', st.columnPage === 0), button(s, 'colNext', 'Next columns', st.columnPage >= columnPages - 1), button(s, 'clear', 'Clear search', !st.search)));
-  return message(s, (results.length ? tableText(visible, results) : 'No matching rows.') + '\nSelect a row to read full values. Row IDs use ' + meta.keys.join(', ') + '.', controls, `Page ${st.page + 1}/${pages} • ${count?.n ?? 0} rows • Columns ${st.columnPage + 1}/${columnPages}${st.search ? ' • Search active' : ''}`);
-}
-function input(name: string, label: string, value = '', required = false, description = ''): APIModalInteractionResponseCallbackComponent {
-  return { type: 18, label: label.slice(0, 45), ...(description ? { description: description.slice(0, 100) } : {}), component: { type: 4, custom_id: name, style: 2, required, max_length: 4000, ...(value ? { value } : {}) } };
-}
-function modal(s: Session, action: string, title: string, components: APIModalInteractionResponseCallbackComponent[]): APIInteractionResponse {
-  return { type: 9, data: { custom_id: customId(s, action), title: title.slice(0, 45), components } };
+  return buildTableMessage(s, meta, results, visible, pages, columnPages, count?.n ?? 0);
 }
 function editable(meta: Schema, mode: 'add' | 'edit') {
   return meta.columns.filter(c => !c.hidden && !(mode === 'edit' && c.pk) && !(mode === 'add' && meta.keys.length === 1 && c.pk && c.type.toUpperCase() === 'INTEGER'));
 }
 function form(s: Session, meta: Schema): APIInteractionResponse {
-  const draft = s.state.draft!;
-  const columns = editable(meta, draft.mode).slice(draft.step * 5, draft.step * 5 + 5);
+  const columns = editable(meta, s.state.draft!.mode).slice(s.state.draft!.step * 5, s.state.draft!.step * 5 + 5);
   assert(columns.length, 'This table has no editable columns.');
-  return modal(s, 'save', `${draft.mode === 'add' ? 'Add' : 'Edit'}: step ${draft.step + 1}`, columns.map(c => {
-    const value = draft.values[c.name];
-    const original = value === null ? 'NULL' : value === undefined ? '' : value === '' ? 'EMPTY' : typeof value === 'string' && (value === 'NULL' || value === 'EMPTY' || value.startsWith('\\')) ? '\\' + value : String(value);
-    return input(c.name, c.name, original.length <= 4000 ? original : '', Boolean(draft.mode === 'add' && c.notnull && c.dflt_value === null), `${c.type || 'value'}; NULL = null; EMPTY = empty text; blank = ${draft.mode === 'edit' ? 'unchanged' : 'default'}`);
-  }));
+  return buildRowForm(s, meta, columns);
 }
 export function parseValue(text: string, c: Column): Value | undefined {
   if (!text) return undefined;
@@ -178,7 +120,7 @@ export async function openDatabase(raw: APIApplicationCommandInteraction, env: E
     const s: Session = { id: crypto.randomUUID(), owner: userId(raw)!, guild: raw.guild_id!, revision: 0, state: { table, page: 0, visible: meta.columns.map(c => c.name), textPage: 0, columnPage: 0 } };
     const data = await render(env, s, meta);
     await env.SPARK_DB.prepare(`INSERT INTO ${sessionTable} VALUES (?, ?, ?, ?, ?, ?)`).bind(s.id, s.owner, s.guild, s.revision, Date.now() + ttl, JSON.stringify(s.state)).run();
-    return { type: 4, data: { ...data, flags: 64 } };
+    return initialResponse(data);
   } catch (error) { return failure(error); }
 }
 function failure(error: unknown): APIInteractionResponse {
@@ -199,19 +141,14 @@ export async function databaseInteraction(raw: APIMessageComponentInteraction | 
     const st = s.state;
     let write: D1PreparedStatement | undefined;
     if (raw.type === 3) {
-      if (action === 'select') return modal(s, 'selected', 'Select row', [input('key', meta.keys.length === 1 ? `Row ID (${meta.keys[0]})` : 'Row key as JSON array', '', true)]);
+      if (action === 'select') return buildSelectRowModal(s, meta);
       if (action === 'find') {
         assert(meta.columns.length <= 25, 'Find supports up to 25 columns per table.');
-        return modal(s, 'found', 'Find rows', [{ type: 18, label: 'Column', component: { type: 3, custom_id: 'column', options: meta.columns.map(c => ({ label: c.name.slice(0, 100), value: c.name })), min_values: 1, max_values: 1 } }, input('value', 'Contains (case-insensitive)', '', true)]);
+        return buildSearchModal(s, meta);
       }
       if (action === 'filter') {
         assert(meta.columns.length <= 50, 'Filter supports up to 50 columns per table.');
-        const components: APIModalInteractionResponseCallbackComponent[] = [];
-        for (let i = 0; i < meta.columns.length; i += 10) {
-          const group = meta.columns.slice(i, i + 10);
-          components.push({ type: 18, label: `Visible columns ${i + 1}–${i + group.length}`, component: group.length === 1 ? { type: 23, custom_id: `columns${i}`, default: st.visible.includes(group[0]!.name) } : { type: 22, custom_id: `columns${i}`, min_values: 0, max_values: group.length, required: false, options: group.map(c => ({ label: c.name.slice(0, 100), value: c.name, default: st.visible.includes(c.name) })) } });
-        }
-        return modal(s, 'filtered', 'Show / hide columns', components);
+        return buildColumnFilterModal(s, meta);
       }
       if (action === 'add' || action === 'edit') {
         const row = action === 'edit' ? await getRow(env, s, meta) : undefined;
@@ -296,6 +233,6 @@ export async function databaseInteraction(raw: APIMessageComponentInteraction | 
     if (write) await persist(env, s, previous, write);
     const data = await render(env, s, meta);
     if (!write) await persist(env, s, previous);
-    return { type: 7, data };
+    return updateResponse(data);
   } catch (error) { return failure(error); }
 }
