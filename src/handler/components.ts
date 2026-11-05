@@ -1,4 +1,3 @@
-import { databaseInteraction } from "../slashcommands/database.ts";
 import { InteractionResponseType, type APIInteractionResponse, type APIMessageComponentInteraction } from "discord-api-types/v10";
 import "../discordBS/builders/persistent-handlers.ts";
 import { ComponentInteraction } from "../discordBS/interactions/component.ts";
@@ -6,12 +5,6 @@ import { getInteractionCallback, runCallback, runPersistentCallback } from "../d
 import type { Env } from "../types.ts";
 
 export async function handleComponent(interaction: APIMessageComponentInteraction, env: Env): Promise<APIInteractionResponse> {
-  if (interaction.data.custom_id.startsWith("db:")) {
-    const wrapped = new ComponentInteraction(interaction, env);
-    await databaseInteraction(wrapped, env);
-    if (!wrapped.response) throw new Error("Database interaction did not send a response.");
-    return wrapped.response;
-  }
   if (interaction.data.custom_id.startsWith("persistent:")) {
     return runPersistentCallback(new ComponentInteraction(interaction, env));
   }

@@ -100,9 +100,12 @@ function button(
   disabled = false,
   style: number = ButtonStyle.Secondary,
 ): ButtonBuilder {
+  const routeId = customId(session, action);
   return new ButtonBuilder()
     .setStyle(style)
-    .setCustomId(customId(session, action))
+    .onClick(async (interaction: ComponentInteraction) => {
+      await databaseInteraction(interaction, interaction.env, routeId);
+    })
     .setLabel(label)
     .setDisabled(disabled);
 }
@@ -186,8 +189,11 @@ function input(
   return builder;
 }
 function modal(session: Session, action: string, title: string, components: Builder[]) {
+  const routeId = customId(session, action);
   return new ModalBuilder()
-    .setCustomId(customId(session, action))
+    .onSubmit(async (interaction: ModalInteraction) => {
+      await databaseInteraction(interaction, interaction.env, routeId);
+    })
     .setTitle(title.slice(0, 45))
     .addComponents(...components);
 }
@@ -562,6 +568,7 @@ function failure(interaction: InteractionReply, error: unknown) {
 export async function databaseInteraction(
   interaction: ComponentInteraction | ModalInteraction,
   env: Env,
+  routeId: string,
 ) {
   const raw = interaction.raw;
   if (!authorized(raw, env))
@@ -570,7 +577,7 @@ export async function databaseInteraction(
       ephemeral: true,
     });
   try {
-    const [, id, revisionText, action] = raw.data.custom_id.split(':');
+    const [, id, revisionText, action] = routeId.split(':');
     const record = await env.SPARK_DB.prepare(
       `SELECT * FROM ${sessionTable} WHERE id = ? AND expires > ?`,
     )
