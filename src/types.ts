@@ -16,6 +16,7 @@ export interface Env {
   TICKET_CATEGORY_ID?: string;
   TICKET_ADMIN_ROLE_ID?: string;
   EXECUTIVE_ROLE_ID?: string;
+  TECH_ROLE_ID?: string;
   CHAPTER_LEAD_ROLE_ID?: string;
   CHAPTER_VICE_LEAD_ROLE_ID?: string;
 }

@@ -3,7 +3,7 @@ import { databaseTables } from '../generated/databaseSchema.ts';
 import { authorized, openDatabase } from '../services/database-browser.ts';
 
 const command: SlashCommand = {
-  name: 'database', description: 'Browse and manage database rows (executives only)', type: 1,
+  name: 'database', description: 'Browse and manage database rows (executives and tech team)', type: 1,
   options: [{ name: 'table', description: 'Table to browse', type: 3, required: true,
     async autocomplete(client, interaction) {
       const query = String(interaction.options.getFocused()).toLowerCase();

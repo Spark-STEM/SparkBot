@@ -12,7 +12,11 @@ const pageSize = 8;
 const ttl = 60 * 60 * 1000;
 export const quote = (name: string) => `"${name.replaceAll('"', '""')}"`;
 export function authorized(raw: Interaction | APIApplicationCommandAutocompleteInteraction, env: Env): boolean {
-  return Boolean(raw.guild_id && raw.member?.roles.includes(env.EXECUTIVE_ROLE_ID || '1334030809577029713'));
+  const allowedRoles = [
+    env.EXECUTIVE_ROLE_ID || '1334030809577029713',
+    env.TECH_ROLE_ID || '1546728101772529674',
+  ];
+  return Boolean(raw.guild_id && raw.member?.roles.some(role => allowedRoles.includes(role)));
 }
 const userId = (raw: Interaction) => (raw.member?.user ?? raw.user)?.id;
 class InputError extends Error {}
@@ -113,7 +117,7 @@ function guard(s: Session, revision: number) {
   return { sql: `EXISTS (SELECT 1 FROM ${sessionTable} WHERE id = ? AND revision = ?)`, params: [s.id, revision] };
 }
 export async function openDatabase(raw: APIApplicationCommandInteraction, env: Env, table: string): Promise<APIInteractionResponse> {
-  if (!authorized(raw, env)) return errorResponse('Only an executive can use /database.');
+  if (!authorized(raw, env)) return errorResponse('Only executives and the tech team can use /database.');
   try {
     const meta = await schema(env, table);
     await initialize(env);
@@ -129,7 +133,7 @@ function failure(error: unknown): APIInteractionResponse {
   return errorResponse('The database rejected this operation. Check required values, unique values, and referenced row IDs. Your draft is retained; retry or cancel.');
 }
 export async function databaseInteraction(raw: APIMessageComponentInteraction | APIModalSubmitInteraction, env: Env): Promise<APIInteractionResponse> {
-  if (!authorized(raw, env)) return errorResponse('Only an executive can use /database.');
+  if (!authorized(raw, env)) return errorResponse('Only executives and the tech team can use /database.');
   try {
     const [, id, revisionText, action] = raw.data.custom_id.split(':');
     const record = await env.SPARK_DB.prepare(`SELECT * FROM ${sessionTable} WHERE id = ? AND expires > ?`).bind(id, Date.now()).first<{ id: string; owner: string; guild: string; revision: number; state: string }>();
