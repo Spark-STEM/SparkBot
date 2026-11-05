@@ -1,5 +1,5 @@
 import type { ComponentInteraction } from "../interactions/component.ts";
-import { attachCallback } from "./callbacks.ts";
+import { attachCallback, createPersistentCustomId, registerPersistentMetadata, type PersistentMetadata, type PersistentOptions } from "./callbacks.ts";
 import { assertIntegerRange, assertLength, assertRequiredText, type Builder } from "./core.ts";
 type Json = Record<string, unknown>;
 export interface SelectOption {
@@ -11,6 +11,7 @@ export interface SelectOption {
 }
 export class StringSelectMenuBuilder implements Builder {
   protected readonly data: Json = { type: 3, options: [] };
+  private persistentMetadata?: PersistentMetadata;
   setCustomId(id: string) { assertRequiredText(id, "Select menu custom ID", 100); this.data.custom_id = id; return this; }
   setPlaceholder(value: string) { assertLength(value, "Select menu placeholder", 150); this.data.placeholder = value; return this; }
   setDisabled(disabled = true) { this.data.disabled = disabled; return this; }
@@ -28,7 +29,33 @@ export class StringSelectMenuBuilder implements Builder {
     this.data.options = [...(this.data.options as Json[]), ...options];
     return this;
   }
-  onSelect(callback: (interaction: ComponentInteraction) => Promise<unknown>) { return attachCallback(this, callback); }
+  onSelect(callback: ((interaction: ComponentInteraction) => Promise<unknown>) | string, options?: PersistentOptions) {
+    if (typeof callback === "function") return attachCallback(this, callback);
+    if (!options) throw new Error("Persistent select menu options are required.");
+    return this.onPersistentSelect(callback, options);
+  }
+  private onPersistentSelect(handlerKey: string, options: PersistentOptions) {
+    if (!handlerKey.trim() || !options.ownerKey.trim()) throw new Error("Persistent select menus require a handler and owner key.");
+    const customId = createPersistentCustomId(handlerKey, options.ownerKey, options.persistentKey);
+    this.persistentMetadata = {
+      customId,
+      handlerKey,
+      ownerKey: options.ownerKey,
+      params: options.params ?? {},
+    };
+    registerPersistentMetadata(this.persistentMetadata);
+    return this.setCustomId(customId);
+  }
+  get persistent() {
+    return {
+      updateParam: (params: Record<string, unknown>) => {
+        if (!this.persistentMetadata) throw new Error("This select menu is not persistent.");
+        this.persistentMetadata.params = { ...this.persistentMetadata.params, ...params };
+        return this;
+      },
+    };
+  }
+  getPersistentMetadata() { return this.persistentMetadata; }
   toJSON() {
     if (typeof this.data.custom_id !== "string") throw new Error("Select menus require a custom ID.");
     if (this.data.min_values !== undefined && this.data.max_values !== undefined &&

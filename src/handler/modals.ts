@@ -2,10 +2,14 @@ import { databaseInteraction } from "../services/database-browser.ts";
 import { InteractionResponseType, type APIModalSubmitInteraction, type APIInteractionResponse } from "discord-api-types/v10";
 import type { Env } from "../types.ts";
 import { ModalInteraction } from "../discordBS/interactions/modal.ts";
-import { getInteractionCallback, runCallback } from "../discordBS/interactions/routing.ts";
+import { getInteractionCallback, runCallback, runPersistentModalCallback } from "../discordBS/interactions/routing.ts";
+import "../discordBS/builders/persistent-handlers.ts";
 
 export async function handleModal(interaction: APIModalSubmitInteraction, env: Env): Promise<APIInteractionResponse> {
   if (interaction.data.custom_id.startsWith("db:")) return databaseInteraction(interaction, env);
+  if (interaction.data.custom_id.startsWith("persistent:")) {
+    return runPersistentModalCallback(new ModalInteraction(interaction, env));
+  }
   const callback = getInteractionCallback(interaction.data.custom_id);
   if (callback) return runCallback(callback, new ModalInteraction(interaction, env));
   console.warn("Unhandled modal submission", interaction.data.custom_id);

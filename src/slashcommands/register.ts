@@ -1,5 +1,13 @@
 import { ApplicationCommandType } from "discord-api-types/v10";
 import {
+    createPersistentCustomId,
+    persistBuilder,
+    registerPersistentHandler,
+    registerPersistentMetadata,
+    registerPersistentModalHandler,
+    updatePersistentParams,
+} from "../discordBS/builders/callbacks.ts";
+import {
     ActionRowBuilder,
     ButtonBuilder,
     ButtonStyle,
@@ -10,7 +18,7 @@ import {
     TextInputBuilder,
     TextInputStyle,
 } from "../discordBS/builders/index.ts";
-import type { DiscordClient } from "../discordBS/index.ts";
+import { DiscordClient } from "../discordBS/index.ts";
 import type { ComponentInteraction } from "../discordBS/interactions/component.ts";
 import type { ModalInteraction } from "../discordBS/interactions/modal.ts";
 import type { InteractionReply } from "../discordBS/interactions/reply.ts";
@@ -52,6 +60,7 @@ type RegistrationWizard = {
     state: string | null;
     stateCode: string | null;
     chapterId: number | null;
+    volunteerSelected: boolean;
     specialRoleIds: number[];
     customLocation: {
         country: string;
@@ -68,6 +77,42 @@ type RegistrationWizard = {
 
 const registrationTimeout = 5 * 60 * 1000;
 const executiveRoleId = "1334030809577029713";
+
+registerPersistentHandler("register.volunteer-confirm", async (interaction, rawParams) => {
+    const params = rawParams as {
+        guildId: string;
+        userId: string;
+        name: string;
+        chapterReviewerIds: string[];
+        chapterApprovalRoleIds: string[];
+        approved: boolean;
+    };
+    const authorized = isExecutive(interaction) ||
+        params.chapterReviewerIds.includes(interaction.user?.userId ?? "");
+    if (!authorized) {
+        await interaction.reply({
+            content: "Only an executive, chapter lead, or chapter vice lead can approve this registration.",
+            ephemeral: true,
+        });
+        return;
+    }
+    const member = interaction.guild?.getMember(params.userId);
+    if (!member) throw new Error(`Member ${params.userId} is unavailable.`);
+    if (params.approved) {
+        await Promise.all(params.chapterApprovalRoleIds.map((roleId) => member.addRole(roleId)));
+    } else {
+        await Promise.all(params.chapterApprovalRoleIds.map((roleId) => member.removeRole(roleId)));
+    }
+    await interaction.update({
+        embeds: [new EmbedBuilder()
+            .setTitle("Is this person from your chapter?")
+            .setDescription(params.approved
+                ? "Confirmed. The volunteer, country, state, and chapter roles have been assigned."
+                : "Denied. No registration roles were assigned.")
+            .setColor(params.approved ? 0x57f287 : 0xed4245)],
+        components: [],
+    });
+});
 
 function isExpired(wizard: RegistrationWizard): boolean {
     return wizard.expired || Date.now() >= wizard.expiresAt;
@@ -365,6 +410,7 @@ function rolesView(wizard: RegistrationWizard) {
         wizard.specialRoleIds = interaction.values
             .map((item) => Number(item.value.split(":")[1]))
             .filter(Number.isInteger);
+        wizard.volunteerSelected = interaction.values.some((item) => item.value === "none");
         const selectedRoles = wizard.roles.filter((role) => wizard.specialRoleIds.includes(role.id));
         const hasChapterLead = selectedRoles.some((role) => role.name.trim().toLowerCase() === "chapter lead");
         if (hasChapterLead) {
@@ -446,7 +492,11 @@ async function ensureLocation(
         location.country,
     ).first();
     if (!country) {
-        await client.env.database.insert("countries", { name: location.country, discord_role_id: null }).run();
+        await client.env.database.insert("countries", {
+            name: location.country,
+            discord_role_id: null,
+            region_ids: "[]",
+        }).run();
         country = await client.env.database.query<DatabaseRow>(
             "SELECT id, name, discord_role_id, region_ids FROM countries WHERE lower(trim(name)) = lower(trim(?)) LIMIT 1",
             location.country,
@@ -469,7 +519,10 @@ async function ensureLocation(
          FROM chapters
          LEFT JOIN regions ON regions.id = chapters.region_id
          WHERE lower(trim(chapters.country)) = lower(trim(?))
-           AND lower(trim(COALESCE(regions.name, ''))) = lower(trim(?))
+           AND (
+             lower(trim(COALESCE(regions.name, ''))) = lower(trim(?))
+             OR chapters.region_id IS NULL
+           )
            AND lower(trim(COALESCE(chapters.name, ''))) = lower(trim(?))
            AND lower(trim(chapters.city)) = lower(trim(?))
          LIMIT 1`,
@@ -479,7 +532,7 @@ async function ensureLocation(
         location.city,
     ).first();
     if (!chapter) {
-        const region = location.state
+        let region = location.state
             ? await client.env.database.query<{ id: number }>(
                 `SELECT regions.id
                  FROM regions
@@ -491,35 +544,31 @@ async function ensureLocation(
                 location.state,
             ).first()
             : null;
-        let regionId = region?.id ?? null;
-        if (location.state && !regionId) {
+        if (location.state && !region) {
             await client.env.database.insert("regions", {
                 country_id: Number(country.id),
                 name: location.state,
-                code: location.stateCode ?? "",
+                code: location.state,
             }).run();
-            regionId = (await client.env.database.query<{ id: number }>(
+            region = await client.env.database.query<{ id: number }>(
                 `SELECT id FROM regions
                  WHERE country_id = ? AND lower(trim(name)) = lower(trim(?))
                  LIMIT 1`,
                 Number(country.id),
                 location.state,
-            ).first())?.id ?? null;
-        }
-        if (regionId) {
+            ).first();
+            if (!region) throw new Error("Unable to create the requested region.");
+
             let regionIds: number[] = [];
-            try {
-                const parsed = JSON.parse(String(country.region_ids ?? "[]"));
-                if (Array.isArray(parsed)) {
-                    regionIds = parsed.filter((id): id is number => Number.isInteger(id));
-                }
-            } catch (error) {
-                throw new Error("The country region mapping is invalid.", { cause: error });
+            const parsedRegionIds = JSON.parse(String(country.region_ids ?? "[]"));
+            if (Array.isArray(parsedRegionIds)) {
+                regionIds = parsedRegionIds.filter((id): id is number =>
+                    Number.isInteger(id) && id > 0);
             }
-            if (!regionIds.includes(regionId)) {
+            if (!regionIds.includes(region.id)) {
                 await client.env.database.update(
                     "countries",
-                    { region_ids: JSON.stringify([...regionIds, regionId]) },
+                    { region_ids: JSON.stringify([...regionIds, region.id]) },
                     { id: Number(country.id) },
                 ).run();
             }
@@ -527,7 +576,7 @@ async function ensureLocation(
         await client.env.database.insert("chapters", {
             country: location.country,
             country_id: Number(country.id),
-            region_id: regionId,
+            region_id: region?.id ?? null,
             city: location.city,
             name: location.chapter,
             discord_role_id: null,
@@ -537,7 +586,10 @@ async function ensureLocation(
              FROM chapters
              LEFT JOIN regions ON regions.id = chapters.region_id
              WHERE lower(trim(chapters.country)) = lower(trim(?))
-               AND lower(trim(COALESCE(regions.name, ''))) = lower(trim(?))
+               AND (
+                 lower(trim(COALESCE(regions.name, ''))) = lower(trim(?))
+                 OR chapters.region_id IS NULL
+               )
                AND lower(trim(COALESCE(chapters.name, ''))) = lower(trim(?))
                AND lower(trim(chapters.city)) = lower(trim(?))
              LIMIT 1`,
@@ -604,6 +656,177 @@ function specialRequestEmbed(
         .setColor(status === "confirmed" ? 0x57f287 : status === "denied" ? 0xed4245 : 0xfee75c);
 }
 
+type PersistentSpecialRequestParams = {
+    guildId: string;
+    userId: string;
+    ticketId: string;
+    specialRequests: RegistrationSpecialRequest[];
+    index: number;
+    confirmed: number[];
+    denied: number[];
+};
+
+type PersistentSpecialRequestModalParams = PersistentSpecialRequestParams & {
+    requestIndex: number;
+};
+
+function specialRequestEditModal(params: PersistentSpecialRequestModalParams) {
+    const request = params.specialRequests[params.requestIndex];
+    if (!request) throw new Error(`Special request index ${params.requestIndex} is out of range.`);
+    const inputs = request.location
+        ? [
+            new TextInputBuilder().setCustomId("country").setStyle(TextInputStyle.Short)
+                .setLabel("Country").setValue(request.location.country).setMaxLength(100).setRequired(true),
+            new TextInputBuilder().setCustomId("state").setStyle(TextInputStyle.Short)
+                .setLabel("State or region (leave empty if none)").setValue(request.location.state)
+                .setMaxLength(100).setRequired(false),
+            new TextInputBuilder().setCustomId("stateCode").setStyle(TextInputStyle.Short)
+                .setLabel("State code (optional)").setValue(request.location.stateCode ?? "")
+                .setMaxLength(10).setRequired(false),
+            new TextInputBuilder().setCustomId("chapter").setStyle(TextInputStyle.Short)
+                .setLabel("Chapter").setValue(request.location.chapter).setMaxLength(100).setRequired(true),
+            new TextInputBuilder().setCustomId("city").setStyle(TextInputStyle.Short)
+                .setLabel("City").setValue(request.location.city).setMaxLength(100).setRequired(true),
+        ]
+        : [new TextInputBuilder().setCustomId("value").setStyle(TextInputStyle.Paragraph)
+            .setLabel(request.label).setValue(request.value).setMaxLength(1000).setRequired(true)];
+    const customId = createPersistentCustomId(
+        "register.special-request-edit",
+        params.ticketId,
+        String(params.requestIndex),
+    );
+    const metadata = {
+        customId,
+        handlerKey: "register.special-request-edit",
+        ownerKey: params.ticketId,
+        params,
+    };
+    registerPersistentMetadata(metadata);
+    return {
+        modal: new ModalBuilder()
+            .setTitle("Edit special request")
+            .setCustomId(customId)
+            .addComponents(...inputs.map((input) => new ActionRowBuilder().addComponents(input))),
+        metadata,
+    };
+}
+
+function specialRequestView(params: PersistentSpecialRequestParams) {
+    const back = new ButtonBuilder().setLabel("Back").setStyle(ButtonStyle.Secondary);
+    const edit = new ButtonBuilder().setLabel("Edit").setStyle(ButtonStyle.Secondary);
+    const next = new ButtonBuilder().setLabel("Next").setStyle(ButtonStyle.Primary);
+    const confirm = new ButtonBuilder().setLabel("Confirm").setStyle(ButtonStyle.Success);
+    const deny = new ButtonBuilder().setLabel("Deny").setStyle(ButtonStyle.Danger);
+    const persistent = (action: string) => ({
+        persistent: true as const,
+        ownerKey: params.ticketId,
+        persistentKey: action,
+        params: { ...params, action },
+    });
+    back.onClick("register.special-request", persistent("back"));
+    edit.onClick("register.special-request", persistent("edit"));
+    next.onClick("register.special-request", persistent("next"));
+    confirm.onClick("register.special-request", persistent("confirm"));
+    deny.onClick("register.special-request", persistent("deny"));
+    back.setDisabled(params.index === 0);
+    edit.setDisabled(Boolean(params.specialRequests[params.index]?.roleId));
+    next.setDisabled(params.index === params.specialRequests.length - 1);
+    return {
+        embeds: [specialRequestEmbed(
+            params.specialRequests,
+            new Map<number, "confirmed" | "denied">([
+                ...params.confirmed.map((item): [number, "confirmed"] => [item, "confirmed"]),
+                ...params.denied.map((item): [number, "denied"] => [item, "denied"]),
+            ]),
+            params.index,
+        )],
+        components: [new ActionRowBuilder().addComponents(back, edit, next, confirm, deny)],
+    };
+}
+
+registerPersistentHandler("register.special-request", async (interaction, rawParams) => {
+    const params = rawParams as PersistentSpecialRequestParams & { action: string };
+    if (!isExecutive(interaction)) {
+        await interaction.reply({
+            content: "Only an executive can manage special requests.",
+            ephemeral: true,
+        });
+        return;
+    }
+    const nextParams: PersistentSpecialRequestParams = {
+        guildId: params.guildId,
+        userId: params.userId,
+        ticketId: params.ticketId,
+        specialRequests: params.specialRequests,
+        index: params.index,
+        confirmed: params.confirmed,
+        denied: params.denied,
+    };
+    const request = nextParams.specialRequests[nextParams.index];
+    if (!request) throw new Error(`Special request index ${nextParams.index} is out of range.`);
+    if (params.action === "back") {
+        nextParams.index = Math.max(0, nextParams.index - 1);
+    } else if (params.action === "next") {
+        nextParams.index = Math.min(nextParams.specialRequests.length - 1, nextParams.index + 1);
+    } else if (params.action === "confirm" || params.action === "deny") {
+        const member = interaction.guild?.getMember(nextParams.userId);
+        if (!member) throw new Error(`Member ${nextParams.userId} is unavailable.`);
+        const roleIds = request.roleIds ?? (request.roleId ? [request.roleId] : []);
+        await Promise.all(roleIds.map((roleId) =>
+            params.action === "confirm" ? member.addRole(roleId) : member.removeRole(roleId)));
+        const confirmed = new Set(nextParams.confirmed);
+        const denied = new Set(nextParams.denied);
+        if (params.action === "confirm") {
+            confirmed.add(nextParams.index);
+            denied.delete(nextParams.index);
+        } else {
+            confirmed.delete(nextParams.index);
+            denied.add(nextParams.index);
+        }
+        nextParams.confirmed = [...confirmed];
+        nextParams.denied = [...denied];
+    } else if (params.action === "edit") {
+        const requestIndex = nextParams.index;
+        const { modal, metadata } = specialRequestEditModal({ ...nextParams, requestIndex });
+        await persistBuilder(interaction.env, metadata);
+        await interaction.showModal(modal);
+        return;
+    }
+    await updatePersistentParams(interaction.env, interaction.customId, nextParams);
+    await interaction.update(specialRequestView(nextParams));
+});
+
+registerPersistentModalHandler("register.special-request-edit", async (interaction: ModalInteraction, rawParams: Record<string, unknown>) => {
+    const params = rawParams as PersistentSpecialRequestModalParams;
+    const request = params.specialRequests[params.requestIndex];
+    if (!request) throw new Error(`Special request index ${params.requestIndex} is out of range.`);
+    const nextParams: PersistentSpecialRequestParams = {
+        guildId: params.guildId,
+        userId: params.userId,
+        ticketId: params.ticketId,
+        specialRequests: params.specialRequests,
+        index: params.requestIndex,
+        confirmed: params.confirmed,
+        denied: params.denied,
+    };
+    if (request.location) {
+        const country = interaction.fields.getTextInputValue("country")!.trim();
+        const state = interaction.fields.getTextInputValue("state")?.trim() ?? "";
+        const stateCode = interaction.fields.getTextInputValue("stateCode")?.trim() ?? "";
+        const city = interaction.fields.getTextInputValue("city")!.trim();
+        const chapter = interaction.fields.getTextInputValue("chapter")!.trim();
+        request.location = { country, state, stateCode, city, chapter };
+        request.value = [chapter, city, state, country].filter(Boolean).join(", ");
+        const locationRoles = await ensureLocation(new DiscordClient(interaction.env, []), params.guildId, request.location);
+        request.roleIds = [locationRoles.countryRoleId, locationRoles.chapterRoleId]
+            .filter((roleId): roleId is string => Boolean(roleId));
+    } else {
+        request.value = interaction.fields.getTextInputValue("value")!.trim();
+    }
+    await updatePersistentParams(interaction.env, interaction.customId, nextParams);
+    await interaction.update(specialRequestView(nextParams));
+});
+
 async function sendRegistrationReviewMessages(options: {
     client: DiscordClient;
     guildId: string;
@@ -614,42 +837,27 @@ async function sendRegistrationReviewMessages(options: {
     roleIds: string[];
     specialRequests: RegistrationSpecialRequest[];
     chapterApprovalRoleIds: string[];
-    memberId: number;
-    previousChapterId: number | null;
-}): Promise<void> {
+    volunteerSelected: boolean;
+} ): Promise<void> {
     const channel = options.client.getGuild(options.guildId).getChannel(options.ticketId);
-    if (options.chapterApprovalRoleIds.length) {
+    if (options.chapterApprovalRoleIds.length && options.volunteerSelected) {
         const approve = new ButtonBuilder().setLabel("Yes").setStyle(ButtonStyle.Success);
         const reject = new ButtonBuilder().setLabel("No").setStyle(ButtonStyle.Danger);
-        const respond = async (interaction: ComponentInteraction, approved: boolean) => {
-            const authorized = isExecutive(interaction) ||
-                options.chapterReviewerIds.includes(interaction.user?.userId ?? "");
-            if (!authorized) {
-                await interaction.reply({
-                    content: "Only an executive, chapter lead, or chapter vice lead can approve this registration.",
-                    ephemeral: true,
-                });
-                return;
-            }
-            if (approved) {
-                const member = options.client.getGuild(options.guildId).getMember(options.userId);
-                await Promise.all(options.chapterApprovalRoleIds.map((roleId) => member.addRole(roleId)));
-            } else {
-                const member = options.client.getGuild(options.guildId).getMember(options.userId);
-                await Promise.all(options.chapterApprovalRoleIds.map((roleId) => member.removeRole(roleId)));
-            }
-            await interaction.update({
-                embeds: [new EmbedBuilder()
-                    .setTitle("Is this person from your chapter?")
-                    .setDescription(approved
-                        ? "Confirmed. The volunteer, country, state, and chapter roles have been assigned."
-                        : "Denied. No registration roles were assigned.")
-                    .setColor(approved ? 0x57f287 : 0xed4245)],
-                components: [],
-            });
-        };
-        approve.onClick((interaction) => respond(interaction, true));
-        reject.onClick((interaction) => respond(interaction, false));
+        const persistent = (approved: boolean) => ({
+            persistent: true as const,
+            ownerKey: options.ticketId,
+            persistentKey: approved ? "approve" : "reject",
+            params: {
+                guildId: options.guildId,
+                userId: options.userId,
+                name: options.name,
+                chapterReviewerIds: options.chapterReviewerIds,
+                chapterApprovalRoleIds: options.chapterApprovalRoleIds,
+                approved,
+            },
+        });
+        approve.onClick("register.volunteer-confirm", persistent(true));
+        reject.onClick("register.volunteer-confirm", persistent(false));
         await channel.sendMessage({
             embeds: [new EmbedBuilder()
                 .setTitle("Is this person from your chapter?")
@@ -660,199 +868,15 @@ async function sendRegistrationReviewMessages(options: {
     }
     if (!options.specialRequests.length) return;
 
-    const statuses = new Map<number, "pending" | "confirmed" | "denied">();
-    let index = 0;
-    const back = new ButtonBuilder().setLabel("Back").setStyle(ButtonStyle.Secondary);
-    const edit = new ButtonBuilder().setLabel("Edit").setStyle(ButtonStyle.Secondary);
-    const confirm = new ButtonBuilder().setLabel("Confirm").setStyle(ButtonStyle.Success);
-    const next = new ButtonBuilder().setLabel("Next").setStyle(ButtonStyle.Primary);
-    const deny = new ButtonBuilder().setLabel("Deny").setStyle(ButtonStyle.Danger);
-    const render = () => {
-        back.setDisabled(index === 0);
-        edit.setDisabled(!options.specialRequests[index]?.location && !options.specialRequests[index]?.email);
-        next.setDisabled(index === options.specialRequests.length - 1);
-        return {
-            embeds: [specialRequestEmbed(options.specialRequests, statuses, index)],
-            components: [new ActionRowBuilder().addComponents(back, edit, next, confirm, deny)],
-        };
-    };
-    const authorized = async (interaction: ComponentInteraction): Promise<boolean> => {
-        if (isExecutive(interaction)) return true;
-        await interaction.reply({
-            content: "Only an executive can manage special requests.",
-            ephemeral: true,
-        });
-        return false;
-    };
-    back.onClick(async (interaction) => {
-        if (!await authorized(interaction)) return;
-        index = Math.max(0, index - 1);
-        await interaction.update(render());
-    });
-    next.onClick(async (interaction) => {
-        if (!await authorized(interaction)) return;
-        index = Math.min(options.specialRequests.length - 1, index + 1);
-        await interaction.update(render());
-    });
-    confirm.onClick(async (interaction) => {
-        if (!await authorized(interaction)) return;
-        const request = options.specialRequests[index];
-        if (statuses.get(index) === "confirmed") {
-            await interaction.update(render());
-            return;
-        }
-        const member = options.client.getGuild(options.guildId).getMember(options.userId);
-        await Promise.all((request?.roleIds ?? (request?.roleId ? [request.roleId] : []))
-            .map((roleId) => member.addRole(roleId)));
-        if (request?.chapterId !== undefined) {
-            await options.client.env.database.update(
-                "members",
-                { chapter_id: request.chapterId },
-                { id: options.memberId },
-            ).run();
-        }
-        if (request?.databaseRoleId !== undefined) {
-            await options.client.env.database.insert("member_roles", {
-                member_id: options.memberId,
-                role_id: request.databaseRoleId,
-            }).run();
-        }
-        statuses.set(index, "confirmed");
-        await interaction.update(render());
-    });
-    deny.onClick(async (interaction) => {
-        if (!await authorized(interaction)) return;
-        const request = options.specialRequests[index];
-        const member = options.client.getGuild(options.guildId).getMember(options.userId);
-        await Promise.all((request?.roleIds ?? (request?.roleId ? [request.roleId] : []))
-            .map((roleId) => member.removeRole(roleId)));
-        if (request?.databaseRoleId !== undefined) {
-            await options.client.env.database.delete("member_roles", {
-                member_id: options.memberId,
-                role_id: request.databaseRoleId,
-            }).run();
-        }
-        if (request?.location) {
-            await options.client.env.database.update(
-                "members",
-                { chapter_id: options.previousChapterId },
-                { id: options.memberId },
-            ).run();
-        }
-        statuses.set(index, "denied");
-        await interaction.update(render());
-    });
-    edit.onClick(async (interaction) => {
-        if (!await authorized(interaction)) return;
-        const request = options.specialRequests[index];
-        if (!request || (!request.location && !request.email)) return;
-        const inputs = request.location
-            ? [
-                new TextInputBuilder()
-                    .setCustomId("country")
-                    .setStyle(TextInputStyle.Short)
-                    .setLabel("Country")
-                    .setValue(request.location.country)
-                    .setMaxLength(100)
-                    .setRequired(true),
-                new TextInputBuilder()
-                    .setCustomId("state")
-                    .setStyle(TextInputStyle.Short)
-                    .setLabel("State/Region")
-                    .setDescription("Leave empty if none")
-                    .setValue(request.location.state)
-                    .setMaxLength(100)
-                    .setRequired(false),
-                new TextInputBuilder()
-                    .setCustomId("stateCode")
-                    .setStyle(TextInputStyle.Short)
-                    .setLabel("State/Region Code (optional)")
-                    .setValue(request.location.stateCode ?? "")
-                    .setMaxLength(20)
-                    .setRequired(false),
-                new TextInputBuilder()
-                    .setCustomId("chapter")
-                    .setStyle(TextInputStyle.Short)
-                    .setLabel("Chapter")
-                    .setValue(request.location.chapter)
-                    .setMaxLength(100)
-                    .setRequired(true),
-                new TextInputBuilder()
-                    .setCustomId("city")
-                    .setStyle(TextInputStyle.Short)
-                    .setLabel("City")
-                    .setValue(request.location.city)
-                    .setMaxLength(100)
-                    .setRequired(true),
-            ]
-            : request.email
-                ? [new TextInputBuilder()
-                    .setCustomId("email")
-                    .setStyle(TextInputStyle.Short)
-                    .setLabel("Email")
-                    .setValue(request.email)
-                    .setMaxLength(320)
-                    .setRequired(true)]
-                : [new TextInputBuilder()
-                .setCustomId("value")
-                .setStyle(TextInputStyle.Paragraph)
-                .setLabel(request.label)
-                .setValue(request.value)
-                .setMaxLength(1000)
-                .setRequired(true)];
-        const modal = new ModalBuilder()
-            .setTitle("Edit special request")
-            .setCustomId("editSpecialRequestModal")
-            .addComponents(...inputs);
-        modal.onSubmit(async (modalInteraction: ModalInteraction) => {
-            const current = options.specialRequests[index];
-            if (!current) throw new Error(`Special request index ${index} is out of range.`);
-            statuses.set(index, "pending");
-            if (current.location) {
-                const country = modalInteraction.fields.getTextInputValue("country")!.trim();
-                const state = modalInteraction.fields.getTextInputValue("state")?.trim() ?? null;
-                const stateCode = modalInteraction.fields.getTextInputValue("stateCode")?.trim() ?? "";
-                const city = modalInteraction.fields.getTextInputValue("city")!.trim();
-                const chapter = modalInteraction.fields.getTextInputValue("chapter")!.trim();
-
-                current.location = { country, state: (state ?? ""), stateCode, city, chapter };
-                current.value = [
-                    current.location.chapter,
-                    current.location.city,
-                    current.location.state,
-                    current.location.country,
-                ].filter(Boolean).join(", ");
-                const locationRoles = await ensureLocation(
-                    options.client,
-                    options.guildId,
-                    current.location,
-                );
-                await options.client.env.database.update(
-                    "members",
-                    { chapter_id: locationRoles.chapterId },
-                    { id: options.memberId },
-                ).run();
-                current.roleIds = [locationRoles.countryRoleId, locationRoles.chapterRoleId]
-                    .filter((roleId): roleId is string => Boolean(roleId));
-            } else {
-                const email = modalInteraction.fields.getTextInputValue("email")?.trim();
-                if (email) {
-                    current.email = email;
-                    current.value = `${current.value.split("\nEmail:")[0]}\nEmail: ${email}`;
-                    await options.client.env.database.update(
-                        "members",
-                        { email },
-                        { id: options.memberId },
-                    ).run();
-                } else {
-                    current.value = modalInteraction.fields.getTextInputValue("value")!.trim();
-                }
-            }
-            await modalInteraction.update(render());
-        });
-        await interaction.showModal(modal);
-    });
-    await channel.sendMessage(render());
+    await channel.sendMessage(specialRequestView({
+        guildId: options.guildId,
+        userId: options.userId,
+        ticketId: options.ticketId,
+        specialRequests: options.specialRequests,
+        index: 0,
+        confirmed: [],
+        denied: [],
+    }));
 }
 
 async function confirmationView(wizard: RegistrationWizard) {
@@ -1035,7 +1059,9 @@ async function confirmationView(wizard: RegistrationWizard) {
             .concat(customLocationRoles?.countryRoleId ?? null, customLocationRoles?.chapterRoleId ?? null)
             .filter((id): id is string => typeof id === "string" && Boolean(id));
         const chapterApprovalRoleIds = wizard.customLocation
-            ? []
+            ? wizard.volunteerSelected && isDiscordId(volunteerRole.discord_role_id)
+                ? [volunteerRole.discord_role_id]
+                : []
             : [...new Set([
                 ...roleRows
                     .filter((row) => !wizard.specialRoleIds.includes(Number(row.id)))
@@ -1119,8 +1145,7 @@ async function confirmationView(wizard: RegistrationWizard) {
             roleIds: configuredDiscordRoleIds,
             specialRequests,
             chapterApprovalRoleIds,
-            memberId,
-            previousChapterId: typeof member.chapter_id === "number" ? member.chapter_id : null,
+            volunteerSelected: wizard.volunteerSelected,
         });
         await interaction.update({
             embeds: [new EmbedBuilder()
@@ -1221,6 +1246,7 @@ const command: SlashCommand = {
                 stateCode: null,
                 chapterId: null,
                 specialRoleIds: [],
+                volunteerSelected: true,
                 customLocation: null,
                 locationLevel: "country",
                 editingLocation: false,

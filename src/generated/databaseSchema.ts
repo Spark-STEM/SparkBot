@@ -84,5 +84,11 @@ export interface TableRows {
     "name": string;
     "code": string;
   };
+  "persistent_components": {
+    "custom_id": string;
+    "owner_key": string;
+    "handler_key": string;
+    "params": string;
+  };
 }
-export const databaseTables = ["chapters","roles","schools","programs","program_schedules","members","sessions","countries","regions"] as const;
+export const databaseTables = ["chapters","roles","schools","programs","program_schedules","members","sessions","countries","regions","persistent_components"] as const;

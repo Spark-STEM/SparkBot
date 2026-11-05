@@ -11,10 +11,12 @@ import { handleComponent } from "./handler/components.ts";
 import { handleModal } from "./handler/modals.ts";
 import { webhooks } from "./generated/registry.ts";
 import { Database } from "./services/database.ts";
+import { initializePersistentComponents } from "./discordBS/builders/callbacks.ts";
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     env.database ??= new Database(env.SPARK_DB);
+    await initializePersistentComponents(env);
     const url = new URL(request.url);
 
     const webhook = webhooks.find(({ pathname }) => pathname === url.pathname);

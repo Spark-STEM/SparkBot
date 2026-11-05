@@ -14,7 +14,7 @@ export class ModalFieldCollection extends DiscordCollection<ModalField> {
 
 export class ModalInteraction extends InteractionReply {
 
-  constructor(readonly raw: APIModalSubmitInteraction, readonly env: Env) {
+  constructor(readonly raw: APIModalSubmitInteraction, env: Env) {
     const user = raw.member?.user ?? raw.user;
     super(env, raw.application_id, raw.token, raw.guild_id ?? null, user?.id ?? null, raw.member as unknown as Json);
   }

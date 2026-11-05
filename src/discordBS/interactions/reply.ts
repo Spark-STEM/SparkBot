@@ -7,6 +7,7 @@ import { DiscordRoutes } from "../rest/routes.ts";
 import type { Json } from "../types/common.ts";
 import type { InteractionResponse, ReplyPayload } from "./core.ts";
 import { InteractionContext } from "./core.ts";
+import { persistPayloadComponents } from "../builders/callbacks.ts";
 
 export interface ReplyOptions extends ReplyPayload { }
 
@@ -32,7 +33,7 @@ export class InteractionReply extends InteractionContext {
   readonly tokenExpiresAt: Date;
 
   constructor(
-    env: Env,
+    readonly env: Env,
     readonly applicationId: string,
     token: string,
     guildId: string | null,
@@ -64,6 +65,7 @@ export class InteractionReply extends InteractionContext {
 
   async update(options: ReplyOptions): Promise<this> {
     if (this.response) throw new Error("This interaction has already been acknowledged.");
+    await persistPayloadComponents(this.env, options.components);
     this.response = { type: InteractionResponseType.UpdateMessage, data: payload(options) };
     return this;
   }

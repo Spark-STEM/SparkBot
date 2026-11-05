@@ -11,6 +11,7 @@ import {
 import { assertMessageContent } from "../types/validation.ts";
 import type { DiscordThreadMember } from "./thread-member.ts";
 import { DiscordCollection } from "../types/collections.ts";
+import { persistPayloadComponents } from "../builders/callbacks.ts";
 
 export interface CreateThreadOptions {
   /** Thread name shown in the channel list. */
@@ -306,14 +307,15 @@ export class DiscordChannel extends DiscordResource<Json, DiscordChannel> {
   sendMessage(payload: MessagePayload): Promise<DiscordMessage> {
     if (typeof payload.content === "string") assertMessageContent(payload.content);
     const files = payload.files ?? [];
-    const request = files.length > 0
-      ? this.client.requestMultipart<Json>("POST", `/channels/${this.id}/messages`, payload, files)
-      : this.client.request<Json>("POST", `/channels/${this.id}/messages`, payload);
-    return request
-      .then(async (message) => {
+    return persistPayloadComponents(this.client.env, payload.components).then(() => {
+      const request = files.length > 0
+        ? this.client.requestMultipart<Json>("POST", `/channels/${this.id}/messages`, payload, files)
+        : this.client.request<Json>("POST", `/channels/${this.id}/messages`, payload);
+      return request.then(async (message) => {
         const { DiscordMessage } = await import("./message.ts");
         return new DiscordMessage(this.client, String(message.id), `/channels/${this.id}/messages/${message.id}`, message);
       });
+    });
   }
 
   /** Lazily iterates through all channel messages using Discord pagination. */

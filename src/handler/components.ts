@@ -1,11 +1,13 @@
-import { databaseInteraction } from "../services/database-browser.ts";
 import { InteractionResponseType, type APIInteractionResponse, type APIMessageComponentInteraction } from "discord-api-types/v10";
-import type { Env } from "../types.ts";
+import "../discordBS/builders/persistent-handlers.ts";
 import { ComponentInteraction } from "../discordBS/interactions/component.ts";
-import { getInteractionCallback, runCallback } from "../discordBS/interactions/routing.ts";
+import { getInteractionCallback, runCallback, runPersistentCallback } from "../discordBS/interactions/routing.ts";
+import type { Env } from "../types.ts";
 
 export async function handleComponent(interaction: APIMessageComponentInteraction, env: Env): Promise<APIInteractionResponse> {
-  if (interaction.data.custom_id.startsWith("db:")) return databaseInteraction(interaction, env);
+  if (interaction.data.custom_id.startsWith("persistent:")) {
+    return runPersistentCallback(new ComponentInteraction(interaction, env));
+  }
   const callback = getInteractionCallback(interaction.data.custom_id);
   if (callback) return runCallback(callback, new ComponentInteraction(interaction, env));
   console.warn("Unhandled message component", interaction.data.custom_id);

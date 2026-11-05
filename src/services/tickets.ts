@@ -9,12 +9,20 @@ import type { ComponentInteraction } from "../discordBS/interactions/component.t
 import type { DiscordChannel } from "../discordBS/resources/channel.ts";
 import { ChannelType, OverwriteType } from "../discordBS/types/common.ts";
 import { PermissionFlagsBits } from "../discordBS/types/permissions.ts";
+import { deletePersistentComponents, registerPersistentHandler } from "../discordBS/builders/callbacks.ts";
 
 const TICKET_CATEGORY_ID = "1565858126161510492";
 const EXECUTIVE_ROLE_ID = "1334030809577029713";
 
 type TicketStatus = "open" | "locked" | "closed";
 type TicketLifecycle = { status: TicketStatus; openerId: string };
+type TicketControlParams = {
+  channelId: string;
+  topic: string;
+  status: TicketStatus;
+  whitelist: { userIds: string[]; roleIds: string[] };
+  action: TicketStatus;
+};
 
 function validDiscordId(value: unknown): value is string {
   return typeof value === "string" && /^\d+$/.test(value.trim()) && value.trim() !== "0";
@@ -31,6 +39,43 @@ function canManageTicket(interaction: ComponentInteraction): boolean {
   return Boolean(interaction.user?.roles.includes(EXECUTIVE_ROLE_ID));
 }
 
+registerPersistentHandler("ticket.control", async (interaction, rawParams) => {
+  const params = rawParams as unknown as TicketControlParams;
+  if (!canManageTicket(interaction)) {
+    await interaction.reply({ content: "Only an executive can manage this ticket.", ephemeral: true });
+    return;
+  }
+  const channel = interaction.guild?.getChannel(params.channelId);
+  if (!channel) throw new Error(`Ticket channel ${params.channelId} is unavailable.`);
+  if (params.action === "closed") {
+    await interaction.update({ content: "This ticket has been deleted.", embeds: [], components: [] });
+    await deletePersistentComponents(interaction.env, params.channelId);
+    await channel.delete();
+    return;
+  }
+  const lifecycle: TicketLifecycle = { status: params.action, openerId: "" };
+  const permission = params.action === "locked"
+    ? {
+      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
+      deny: [PermissionFlagsBits.SendMessages],
+    }
+    : {
+      allow: [
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.ReadMessageHistory,
+      ],
+    };
+  await Promise.all([
+    ...params.whitelist.userIds.map((id) => channel.editPermissions({ type: OverwriteType.Member, id, ...permission })),
+    ...params.whitelist.roleIds.map((id) => channel.editPermissions({ type: OverwriteType.Role, id, ...permission })),
+  ]);
+  await interaction.update({
+    embeds: [ticketEmbed(params.topic, params.action)],
+    components: [controls(channel, params.topic, lifecycle, params.whitelist)],
+  });
+});
+
 function controls(
   channel: DiscordChannel,
   topic: string,
@@ -41,44 +86,15 @@ function controls(
   const remove = new ButtonBuilder().setLabel("Delete").setStyle(ButtonStyle.Danger);
   const reopen = new ButtonBuilder().setLabel("Open").setStyle(ButtonStyle.Success);
 
-  const update = async (interaction: ComponentInteraction, nextStatus: TicketStatus) => {
-    if (!canManageTicket(interaction)) {
-      await interaction.reply({ content: "Only an executive can manage this ticket.", ephemeral: true });
-      return;
-    }
-    if (nextStatus === "closed") {
-      lifecycle.status = "closed";
-      await interaction.update({ content: "This ticket has been deleted.", embeds: [], components: [] });
-      await channel.delete();
-      return;
-    }
-
-    lifecycle.status = nextStatus;
-    const permission = nextStatus === "locked"
-      ? {
-        allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
-        deny: [PermissionFlagsBits.SendMessages],
-      }
-      : {
-        allow: [
-          PermissionFlagsBits.ViewChannel,
-          PermissionFlagsBits.SendMessages,
-          PermissionFlagsBits.ReadMessageHistory,
-        ],
-      };
-    await Promise.all([
-      ...whitelist.userIds.map((id) => channel.editPermissions({ type: OverwriteType.Member, id, ...permission })),
-      ...whitelist.roleIds.map((id) => channel.editPermissions({ type: OverwriteType.Role, id, ...permission })),
-    ]);
-    await interaction.update({
-      embeds: [ticketEmbed(topic, nextStatus)],
-      components: [controls(channel, topic, lifecycle, whitelist)],
-    });
-  };
-
-  lock.onClick((interaction) => update(interaction, "locked"));
-  remove.onClick((interaction) => update(interaction, "closed"));
-  reopen.onClick((interaction) => update(interaction, "open"));
+  const persistent = (action: TicketStatus) => ({
+    persistent: true as const,
+    ownerKey: channel.id,
+    persistentKey: action,
+    params: { channelId: channel.id, topic, status: lifecycle.status, whitelist, action },
+  });
+  lock.onClick("ticket.control", persistent("locked"));
+  remove.onClick("ticket.control", persistent("closed"));
+  reopen.onClick("ticket.control", persistent("open"));
   lock.setDisabled(lifecycle.status === "locked" || lifecycle.status === "closed");
   remove.setDisabled(lifecycle.status === "closed");
   reopen.setDisabled(lifecycle.status === "open");

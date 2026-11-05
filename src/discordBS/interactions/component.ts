@@ -7,7 +7,7 @@ import type { Json } from "../types/common.ts";
 export interface SelectedComponentValue { id: string; value: string; }
 
 export class ComponentInteraction extends InteractionReply {
-  constructor(readonly raw: APIMessageComponentInteraction, readonly env: Env) {
+  constructor(readonly raw: APIMessageComponentInteraction, env: Env) {
     const user = raw.member?.user ?? raw.user;
     super(env, raw.application_id, raw.token, raw.guild_id ?? null, user?.id ?? null, raw.member as unknown as Json);
   }
