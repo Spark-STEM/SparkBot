@@ -25,6 +25,24 @@ import type { InteractionReply } from "../discordBS/interactions/reply.ts";
 import { createTicket } from "../services/tickets.ts";
 import type { SlashCommand } from "./types.ts";
 
+/** Updates the server nickname without undoing a successful registration on failure. */
+async function updateRegistrationNickname(wizard: RegistrationWizard): Promise<string> {
+    const parts = wizard.name.trim().split(/\s+/u).filter(Boolean);
+    const firstName = parts[0] ?? "";
+    const lastInitial = parts.length > 1 ? Array.from(parts[parts.length - 1]!)[0]!.toLocaleUpperCase() : "";
+    const nickname = lastInitial
+        ? `${Array.from(firstName).slice(0, 29).join("")} ${lastInitial}.`
+        : Array.from(firstName).slice(0, 32).join("");
+    try {
+        await wizard.client.getGuild(wizard.guildId).getMember(wizard.userId)
+            .setNickname(nickname, "Spark membership registration");
+        return "";
+    } catch (error) {
+        console.error("Registration nickname update failed", error);
+        return "\nYour registration was saved, but I couldn't update your server nickname. An administrator may need to check my nickname permissions and role position.";
+    }
+}
+
 type DatabaseRow = Record<string, unknown>;
 type LocationLevel = "country" | "state" | "chapter";
 
@@ -985,9 +1003,10 @@ async function confirmationView(wizard: RegistrationWizard) {
                     { discord_id: wizard.userId, ...(wizard.email ? { email: wizard.email } : {}) },
                     { id: Number(existing.id) },
                 ).run();
+                const nicknameNotice = await updateRegistrationNickname(wizard);
                 await interaction.update({
                     embeds: [new EmbedBuilder()
-                        .setDescription("Linked your existing user to your current discord account")
+                        .setDescription("Linked your existing user to your current discord account" + nicknameNotice)
                         .setColor(0x57f287)],
                     content: undefined,
                     components: [],
@@ -1147,12 +1166,13 @@ async function confirmationView(wizard: RegistrationWizard) {
             chapterApprovalRoleIds,
             volunteerSelected: wizard.volunteerSelected,
         });
+        const nicknameNotice = await updateRegistrationNickname(wizard);
         await interaction.update({
             embeds: [new EmbedBuilder()
                 .setTitle("Registration complete")
-                .setDescription(ticketId
+                .setDescription((ticketId
                     ? `Your registration is saved. An administrator will review ticket <#${ticketId}>.`
-                    : "Your registration is saved and your Discord roles have been assigned.")
+                    : "Your registration is saved and your Discord roles have been assigned.") + nicknameNotice)
                 .setColor(0x57f287)],
             components: [],
             ephemeral: true,
@@ -1287,9 +1307,10 @@ const command: SlashCommand = {
                         { discord_id: modalUserId },
                         { id: Number(existing.id) },
                     ).run();
+                    const nicknameNotice = await updateRegistrationNickname(wizard);
                     await modalInteraction.reply({
                         embeds: [new EmbedBuilder()
-                            .setDescription("Linked your existing user to your current discord account")
+                            .setDescription("Linked your existing user to your current discord account" + nicknameNotice)
                             .setColor(0x57f287)],
                         content: undefined,
                         ephemeral: true,
