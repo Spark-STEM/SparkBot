@@ -1,4 +1,4 @@
-import { databaseInteraction } from "../services/database-browser.ts";
+import { databaseInteraction } from "../slashcommands/database.ts";
 import { InteractionResponseType, type APIModalSubmitInteraction, type APIInteractionResponse } from "discord-api-types/v10";
 import type { Env } from "../types.ts";
 import { ModalInteraction } from "../discordBS/interactions/modal.ts";

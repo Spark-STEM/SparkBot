@@ -1,4 +1,4 @@
-import { databaseInteraction } from "../services/database-browser.ts";
+import { databaseInteraction } from "../slashcommands/database.ts";
 import { InteractionResponseType, type APIInteractionResponse, type APIMessageComponentInteraction } from "discord-api-types/v10";
 import "../discordBS/builders/persistent-handlers.ts";
 import { ComponentInteraction } from "../discordBS/interactions/component.ts";
