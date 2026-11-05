@@ -4,11 +4,19 @@ import { InteractionReply } from "./reply.ts";
 import type { Json } from "../types/common.ts";
 import { DiscordCollection } from "../types/collections.ts";
 
-export interface ModalField { id: string; value: string; }
+export interface ModalField { id: string; value: string | string[] | boolean; }
 
 export class ModalFieldCollection extends DiscordCollection<ModalField> {
   getTextInputValue(id: string): string | null {
-    return this.get(id)?.value ?? null;
+    const value = this.get(id)?.value;
+    return typeof value === "string" ? value : null;
+  }
+  getSelectedValues(id: string): string[] {
+    const value = this.get(id)?.value;
+    return Array.isArray(value) ? [...value] : [];
+  }
+  getCheckboxValue(id: string): boolean {
+    return this.get(id)?.value === true;
   }
 }
 
@@ -21,10 +29,14 @@ export class ModalInteraction extends InteractionReply {
 
   get customId() { return this.raw.data.custom_id; }
   get fields(): ModalFieldCollection {
-    const values = new Map<string, string>();
+    const values = new Map<string, string | string[] | boolean>();
     const visit = (component: Json) => {
-      if (typeof component.custom_id === "string" && typeof component.value === "string") {
-        values.set(component.custom_id, component.value);
+      if (typeof component.custom_id === "string") {
+        if (Array.isArray(component.values) && component.values.every(value => typeof value === "string")) {
+          values.set(component.custom_id, component.values);
+        } else if (typeof component.value === "string" || typeof component.value === "boolean") {
+          values.set(component.custom_id, component.value);
+        }
       }
       for (const child of (component.components as Json[] | undefined) ?? []) visit(child);
       if (component.component && typeof component.component === "object") visit(component.component as Json);

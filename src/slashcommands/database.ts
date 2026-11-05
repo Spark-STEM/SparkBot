@@ -12,7 +12,7 @@ const command: SlashCommand = {
     },
   }],
   async run(client, interaction) {
-    interaction.response = await openDatabase(interaction.raw, client.env, interaction.options.getString('table') ?? '');
+    await openDatabase(interaction, client.env, interaction.options.getString('table') ?? '');
   },
 };
 export default command;

@@ -6,7 +6,12 @@ import { getInteractionCallback, runCallback, runPersistentModalCallback } from 
 import "../discordBS/builders/persistent-handlers.ts";
 
 export async function handleModal(interaction: APIModalSubmitInteraction, env: Env): Promise<APIInteractionResponse> {
-  if (interaction.data.custom_id.startsWith("db:")) return databaseInteraction(interaction, env);
+  if (interaction.data.custom_id.startsWith("db:")) {
+    const wrapped = new ModalInteraction(interaction, env);
+    await databaseInteraction(wrapped, env);
+    if (!wrapped.response) throw new Error("Database interaction did not send a response.");
+    return wrapped.response;
+  }
   if (interaction.data.custom_id.startsWith("persistent:")) {
     return runPersistentModalCallback(new ModalInteraction(interaction, env));
   }

@@ -146,7 +146,17 @@ export class LabelBuilder implements Builder {
     this.data.description = value;
     return this;
   }
-  setTextInputComponent(component: Builder) { this.data.component = component.toJSON(); return this; }
+  setTextInputComponent(component: Builder) {
+    const serialized = component.toJSON();
+    // Text input labels belong to the containing Label component in modern modals.
+    if (serialized.type === 4) {
+      const { label: _label, ...input } = serialized;
+      this.data.component = input;
+    } else {
+      this.data.component = serialized;
+    }
+    return this;
+  }
   toJSON() {
     if (typeof this.data.label !== "string") throw new Error("Label text is required.");
     assertLength(this.data.label, "Label text", 45);

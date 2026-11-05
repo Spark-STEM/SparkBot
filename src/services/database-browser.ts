@@ -1,5 +1,9 @@
-import type { APIApplicationCommandInteraction, APIApplicationCommandAutocompleteInteraction, APIMessageComponentInteraction, APIModalSubmitInteraction, APIInteractionResponse, APIInteractionResponseCallbackData } from 'discord-api-types/v10';
-import { buildDraftMessage, buildDeleteMessage, buildRowMessage, buildTableMessage, buildRowForm, buildSelectRowModal, buildSearchModal, buildColumnFilterModal, errorResponse, initialResponse, updateResponse } from './database-browser-ui.ts';
+import type { CommandInteraction } from '../discordBS/interactions/slash.ts';
+import type { ComponentInteraction } from '../discordBS/interactions/component.ts';
+import type { ModalInteraction } from '../discordBS/interactions/modal.ts';
+import type { InteractionReply, ReplyOptions } from '../discordBS/interactions/reply.ts';
+import type { APIApplicationCommandInteraction, APIApplicationCommandAutocompleteInteraction, APIMessageComponentInteraction, APIModalSubmitInteraction } from 'discord-api-types/v10';
+import { buildDraftMessage, buildDeleteMessage, buildRowMessage, buildTableMessage, buildRowForm, buildSelectRowModal, buildSearchModal, buildColumnFilterModal } from './database-browser-ui.ts';
 export { display, tableText, fullRowChunks } from './database-browser-ui.ts';
 import { databaseTables } from '../generated/databaseSchema.ts';
 import type { Env } from '../types.ts';
@@ -50,7 +54,7 @@ async function getRow(env: Env, s: Session, meta: Schema): Promise<Row> {
   assert(row, 'This row no longer exists. Use Back to return to the table.');
   return row;
 }
-async function render(env: Env, s: Session, meta: Schema): Promise<APIInteractionResponseCallbackData> {
+async function render(env: Env, s: Session, meta: Schema): Promise<ReplyOptions> {
   const st = s.state;
   if (st.draft) return buildDraftMessage(s);
   if (st.deleting) return buildDeleteMessage(s);
@@ -72,7 +76,7 @@ async function render(env: Env, s: Session, meta: Schema): Promise<APIInteractio
 function editable(meta: Schema, mode: 'add' | 'edit') {
   return meta.columns.filter(c => !c.hidden && !(mode === 'edit' && c.pk) && !(mode === 'add' && meta.keys.length === 1 && c.pk && c.type.toUpperCase() === 'INTEGER'));
 }
-function form(s: Session, meta: Schema): APIInteractionResponse {
+function form(s: Session, meta: Schema) {
   const columns = editable(meta, s.state.draft!.mode).slice(s.state.draft!.step * 5, s.state.draft!.step * 5 + 5);
   assert(columns.length, 'This table has no editable columns.');
   return buildRowForm(s, meta, columns);
@@ -94,19 +98,6 @@ export function parseValue(text: string, c: Column): Value | undefined {
   // Prefix a literal NULL or EMPTY with a backslash to store the word itself.
   return text.startsWith('\\') ? text.slice(1) : text;
 }
-function fields(raw: APIModalSubmitInteraction): Map<string, string | string[] | boolean> {
-  const result = new Map<string, string | string[] | boolean>();
-  for (const outer of raw.data.components) {
-    const components = 'component' in outer ? [outer.component] : 'components' in outer ? outer.components : [outer];
-    for (const c of components) {
-      if ('custom_id' in c) {
-        if ('values' in c) result.set(c.custom_id, c.values);
-        else if ('value' in c) result.set(c.custom_id, c.value ?? '');
-      }
-    }
-  }
-  return result;
-}
 async function persist(env: Env, s: Session, previous: number, write?: D1PreparedStatement) {
   const save = env.SPARK_DB.prepare(`UPDATE ${sessionTable} SET state = ?, revision = ?, expires = ? WHERE id = ? AND revision = ?${write ? ' AND changes() = 1' : ''}`).bind(JSON.stringify(s.state), s.revision, Date.now() + ttl, s.id, previous);
   const results = await env.SPARK_DB.batch(write ? [write, save] : [save]);
@@ -116,24 +107,27 @@ async function persist(env: Env, s: Session, previous: number, write?: D1Prepare
 function guard(s: Session, revision: number) {
   return { sql: `EXISTS (SELECT 1 FROM ${sessionTable} WHERE id = ? AND revision = ?)`, params: [s.id, revision] };
 }
-export async function openDatabase(raw: APIApplicationCommandInteraction, env: Env, table: string): Promise<APIInteractionResponse> {
-  if (!authorized(raw, env)) return errorResponse('Only executives and the tech team can use /database.');
+export async function openDatabase(interaction: CommandInteraction, env: Env, table: string) {
+  const raw = interaction.raw;
+  if (!authorized(raw, env)) return interaction.reply({ content: 'Only executives and the tech team can use /database.', ephemeral: true });
   try {
     const meta = await schema(env, table);
     await initialize(env);
     const s: Session = { id: crypto.randomUUID(), owner: userId(raw)!, guild: raw.guild_id!, revision: 0, state: { table, page: 0, visible: meta.columns.map(c => c.name), textPage: 0, columnPage: 0 } };
     const data = await render(env, s, meta);
     await env.SPARK_DB.prepare(`INSERT INTO ${sessionTable} VALUES (?, ?, ?, ?, ?, ?)`).bind(s.id, s.owner, s.guild, s.revision, Date.now() + ttl, JSON.stringify(s.state)).run();
-    return initialResponse(data);
-  } catch (error) { return failure(error); }
+    return interaction.reply({ ...data, ephemeral: true });
+  } catch (error) { return failure(interaction, error); }
 }
-function failure(error: unknown): APIInteractionResponse {
-  if (error instanceof InputError) return errorResponse(error.message);
+function failure(interaction: InteractionReply, error: unknown) {
+  const reply = (content: string) => interaction.reply({ content, ephemeral: true, allowed_mentions: { parse: [] } });
+  if (error instanceof InputError) return reply(error.message);
   console.error('Database browser operation failed', error);
-  return errorResponse('The database rejected this operation. Check required values, unique values, and referenced row IDs. Your draft is retained; retry or cancel.');
+  return reply('The database rejected this operation. Check required values, unique values, and referenced row IDs. Your draft is retained; retry or cancel.');
 }
-export async function databaseInteraction(raw: APIMessageComponentInteraction | APIModalSubmitInteraction, env: Env): Promise<APIInteractionResponse> {
-  if (!authorized(raw, env)) return errorResponse('Only executives and the tech team can use /database.');
+export async function databaseInteraction(interaction: ComponentInteraction | ModalInteraction, env: Env) {
+  const raw = interaction.raw;
+  if (!authorized(raw, env)) return interaction.reply({ content: 'Only executives and the tech team can use /database.', ephemeral: true });
   try {
     const [, id, revisionText, action] = raw.data.custom_id.split(':');
     const record = await env.SPARK_DB.prepare(`SELECT * FROM ${sessionTable} WHERE id = ? AND expires > ?`).bind(id, Date.now()).first<{ id: string; owner: string; guild: string; revision: number; state: string }>();
@@ -145,23 +139,23 @@ export async function databaseInteraction(raw: APIMessageComponentInteraction | 
     const st = s.state;
     let write: D1PreparedStatement | undefined;
     if (raw.type === 3) {
-      if (action === 'select') return buildSelectRowModal(s, meta);
+      if (action === 'select') return interaction.showModal(buildSelectRowModal(s, meta));
       if (action === 'find') {
         assert(meta.columns.length <= 25, 'Find supports up to 25 columns per table.');
-        return buildSearchModal(s, meta);
+        return interaction.showModal(buildSearchModal(s, meta));
       }
       if (action === 'filter') {
         assert(meta.columns.length <= 50, 'Filter supports up to 50 columns per table.');
-        return buildColumnFilterModal(s, meta);
+        return interaction.showModal(buildColumnFilterModal(s, meta));
       }
       if (action === 'add' || action === 'edit') {
         const row = action === 'edit' ? await getRow(env, s, meta) : undefined;
         st.draft = { mode: action, step: 0, values: row ? { ...row } : {}, original: row };
         const response = form(s, meta);
         await persist(env, s, previous);
-        return response;
+        return interaction.showModal(response);
       }
-      if (action === 'continue') return form(s, meta);
+      if (action === 'continue') return interaction.showModal(form(s, meta));
       if (action === 'delete') st.deleting = await getRow(env, s, meta);
       else if (action === 'confirm') {
         assert(st.deleting && st.focus, 'Open the deletion confirmation first.');
@@ -180,19 +174,18 @@ export async function databaseInteraction(raw: APIMessageComponentInteraction | 
       else if (action === 'clear') { delete st.search; st.page = 0; }
       else if (action !== 'delete') throw new InputError('Unknown database action.');
     } else {
-      const values = fields(raw);
+      const values = (interaction as ModalInteraction).fields;
       if (action === 'selected') {
-        const value = String(values.get('key') ?? '');
+        const value = values.getTextInputValue('key') ?? '';
         let key: Value[];
         try { key = meta.keys.length === 1 ? [value] : JSON.parse(value); } catch { throw new InputError('Enter the composite row key as a JSON array.'); }
         assert(Array.isArray(key) && key.every(v => v === null || typeof v === 'string' || typeof v === 'number'), 'Invalid row ID.');
         st.focus = key; st.textPage = 0;
         await getRow(env, s, meta);
       } else if (action === 'found') {
-        const selected = values.get('column');
-        const column = Array.isArray(selected) ? selected[0] : undefined;
+        const column = values.getSelectedValues('column')[0];
         assert(column && meta.columns.some(c => c.name === column), 'Choose a valid column.');
-        const value = String(values.get('value') ?? '');
+        const value = values.getTextInputValue('value') ?? '';
         assert(value.length > 0, 'Enter a search value.');
         st.search = { column, value }; st.page = 0; delete st.focus;
         const { results } = await env.SPARK_DB.prepare(`SELECT ${meta.keys[0] === '_rowid_' ? '_rowid_, ' : ''}* FROM ${quote(st.table)} WHERE instr(lower(CAST(${quote(column)} AS TEXT)), lower(?)) > 0 LIMIT 2`).bind(value).all<Row>();
@@ -200,9 +193,9 @@ export async function databaseInteraction(raw: APIMessageComponentInteraction | 
       } else if (action === 'filtered') {
         st.visible = [];
         for (let i = 0; i < meta.columns.length; i += 10) {
-          const selected = values.get(`columns${i}`);
+          const selected = values.getSelectedValues(`columns${i}`);
           const group = meta.columns.slice(i, i + 10);
-          st.visible.push(...group.filter(c => Array.isArray(selected) ? selected.includes(c.name) : selected === true).map(c => c.name));
+          st.visible.push(...group.filter(c => group.length === 1 ? values.getCheckboxValue(`columns${i}`) : selected.includes(c.name)).map(c => c.name));
         }
         st.columnPage = 0;
       } else if (action === 'save') {
@@ -210,7 +203,7 @@ export async function databaseInteraction(raw: APIMessageComponentInteraction | 
         const draft = st.draft;
         const columns = editable(meta, draft.mode);
         for (const c of columns.slice(draft.step * 5, draft.step * 5 + 5)) {
-          const value = parseValue(String(values.get(c.name) ?? ''), c);
+          const value = parseValue(values.getTextInputValue(c.name) ?? '', c);
           if (value !== undefined) draft.values[c.name] = value;
           else if (draft.mode === 'add') assert(!c.notnull || c.dflt_value !== null, `${c.name} is required.`);
         }
@@ -237,6 +230,6 @@ export async function databaseInteraction(raw: APIMessageComponentInteraction | 
     if (write) await persist(env, s, previous, write);
     const data = await render(env, s, meta);
     if (!write) await persist(env, s, previous);
-    return updateResponse(data);
-  } catch (error) { return failure(error); }
+    return interaction.update(data);
+  } catch (error) { return failure(interaction, error); }
 }

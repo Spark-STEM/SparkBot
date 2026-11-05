@@ -1,4 +1,4 @@
-import type { APIInteractionResponse, APIActionRowComponent, APIButtonComponent, APIInteractionResponseCallbackData } from 'discord-api-types/v10';
+import type { ReplyOptions } from '../discordBS/interactions/reply.ts';
 import { ButtonBuilder, ActionRowBuilder } from '../discordBS/builders/buttons.ts';
 import { EmbedBuilder } from '../discordBS/builders/embed.ts';
 import { ModalBuilder, LabelBuilder, TextInputBuilder } from '../discordBS/builders/modals.ts';
@@ -11,10 +11,10 @@ function button(s: Session, action: string, label: string, disabled = false, sty
   return new ButtonBuilder().setStyle(style).setCustomId(customId(s, action)).setLabel(label).setDisabled(disabled);
 }
 const buttons = (...components: ButtonBuilder[]) => new ActionRowBuilder().addComponents(...components);
-function message(s: Session, description: string, components: ReturnType<typeof buttons>[], footer = ''): APIInteractionResponseCallbackData {
+function message(s: Session, description: string, components: ReturnType<typeof buttons>[], footer = ''): ReplyOptions {
   const embed = new EmbedBuilder().setTitle(s.state.table.slice(0, 256)).setDescription(description).setColor(0x5865f2);
   if (footer) embed.setFooter({ text: footer.slice(0, 2048) });
-  return { content: '', embeds: [embed.toJSON()], components: components.map(row => row.toJSON() as Record<string, unknown> & APIActionRowComponent<APIButtonComponent>), allowed_mentions: { parse: [] } };
+  return { content: '', embeds: [embed], components, allowed_mentions: { parse: [] } };
 }
 export function display(value: unknown): string {
   if (value === null) return 'NULL';
@@ -48,17 +48,14 @@ export function fullRowChunks(row: Row, columns: string[]): string[] {
 function input(name: string, label: string, value = '', required = false, description = ''): LabelBuilder {
   const text = new TextInputBuilder().setCustomId(name).setStyle(2).setLabel(label.slice(0, 45)).setRequired(required).setMaxLength(4000);
   if (value) text.setValue(value);
-  // Labels contain the display text; their nested input does not carry a label.
-  const { label: _label, ...component } = text.toJSON();
-  const builder = new LabelBuilder().setLabel(label.slice(0, 45)).setTextInputComponent({ toJSON: () => component });
+  const builder = new LabelBuilder().setLabel(label.slice(0, 45)).setTextInputComponent(text);
   if (description) builder.setDescription(description.slice(0, 100));
   return builder;
 }
-function modal(s: Session, action: string, title: string, components: Builder[]): APIInteractionResponse {
-  const data = new ModalBuilder().setCustomId(customId(s, action)).setTitle(title.slice(0, 45)).addComponents(...components).toJSON();
-  return { type: 9, data: data as Record<string, unknown> & Extract<APIInteractionResponse, { type: 9 }>['data'] };
+function modal(s: Session, action: string, title: string, components: Builder[]) {
+  return new ModalBuilder().setCustomId(customId(s, action)).setTitle(title.slice(0, 45)).addComponents(...components);
 }
-export function buildRowForm(s: Session, meta: Schema, columns: Schema['columns']): APIInteractionResponse {
+export function buildRowForm(s: Session, meta: Schema, columns: Schema['columns']) {
   const draft = s.state.draft!;
   return modal(s, 'save', `${draft.mode === 'add' ? 'Add' : 'Edit'}: step ${draft.step + 1}`, columns.map(c => {
     const value = draft.values[c.name];
@@ -108,6 +105,3 @@ export function buildColumnFilterModal(s: Session, meta: Schema) {
   }
   return modal(s, 'filtered', 'Show / hide columns', components);
 }
-export const errorResponse = (content: string): APIInteractionResponse => ({ type: 4, data: { content, flags: 64, allowed_mentions: { parse: [] } } });
-export const initialResponse = (data: APIInteractionResponseCallbackData): APIInteractionResponse => ({ type: 4, data: { ...data, flags: 64 } });
-export const updateResponse = (data: APIInteractionResponseCallbackData): APIInteractionResponse => ({ type: 7, data });
