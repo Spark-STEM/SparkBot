@@ -79,10 +79,21 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
   const email = payload.email.trim();
   const message = payload.message.trim();
   const subject = payload.subject.trim();
-  if (category.length > 100 || email.length > 320 || message.length > 3500 ||
-      !subject || subject.length > 240 ||
-      typeof payload.chapterName !== "string" || chapterName.length > 100) {
-    return new Response("Contact form fields are missing or exceed their allowed lengths", { status: 400 });
+  if (payload.chapterName !== undefined && typeof payload.chapterName !== "string") {
+    return new Response("chapterName must be a string when provided", { status: 400 });
+  }
+  const invalidFields = [
+    ...(category.length > 100 ? ["category"] : []),
+    ...(email.length > 320 ? ["email"] : []),
+    ...(message.length > 3500 ? ["message"] : []),
+    ...(!subject || subject.length > 240 ? ["subject"] : []),
+    ...(chapterName.length > 100 ? ["chapterName"] : []),
+  ];
+  if (invalidFields.length) {
+    return Response.json({
+      error: "Contact form fields are missing or exceed their allowed lengths",
+      fields: invalidFields,
+    }, { status: 400 });
   }
 
   try {
