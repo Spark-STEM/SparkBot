@@ -5,8 +5,14 @@ import type { Env } from "../types.ts";
 import type { Webhook } from "./types.ts";
 
 const MAX_BODY_BYTES = 8 * 1024;
+const CONTACT_TICKET_OPENER_ID = "1409557350729257090";
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validDiscordId(value: unknown): value is string {
+  return typeof value === "string" && /^[1-9]\d*$/.test(value.trim());
 }
 
 async function hash(value: string): Promise<Uint8Array> {
@@ -61,33 +67,76 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
     return new Response("Invalid JSON", { status: 400 });
   }
   if (!isRecord(payload) ||
-      typeof payload.channelName !== "string" ||
-      !payload.channelName.trim() ||
-      typeof payload.userId !== "string" ||
-      !/^[1-9]\d*$/.test(payload.userId.trim())) {
-    return new Response("channelName and a valid Discord userId are required", { status: 400 });
+      typeof payload.category !== "string" ||
+      !payload.category.trim() ||
+      typeof payload.email !== "string" ||
+      !payload.email.trim() ||
+      typeof payload.message !== "string" ||
+      !payload.message.trim() ||
+      typeof payload.subject !== "string" ||
+      !payload.subject.trim()) {
+    return new Response("category, email, message, and subject are required", { status: 400 });
   }
 
-  const embedTitle = payload.embedTitle === undefined ? "Ticket" : payload.embedTitle;
-  const topic = payload.topic === undefined ? "" : payload.topic;
-  if (typeof embedTitle !== "string" || !embedTitle.trim() || embedTitle.length > 240 ||
-      typeof topic !== "string" || topic.length > 3900) {
-    return new Response("embedTitle must be 1-240 characters and topic must be at most 3900 characters", {
-      status: 400,
-    });
+  const category = payload.category.trim();
+  const chapterName = typeof payload.chapterName === "string" ? payload.chapterName.trim() : "";
+  const email = payload.email.trim();
+  const message = payload.message.trim();
+  const subject = payload.subject.trim();
+  if (category.length > 100 || email.length > 320 || message.length > 3500 ||
+      !subject || subject.length > 240 ||
+      (category.toLowerCase() === "chapter" && (!chapterName || chapterName.length > 100))) {
+    return new Response("Contact form fields are missing or exceed their allowed lengths", { status: 400 });
   }
 
   try {
+    let chapterLeadIds: string[] = [];
+    if (category.toLowerCase() === "chapter") {
+      const chapter = await env.database.query<{ id: number }>(
+        `SELECT id
+         FROM chapters
+         WHERE lower(trim(name)) = lower(trim(?))
+         LIMIT 1`,
+        chapterName,
+      ).first();
+      if (chapter) {
+        const leadRows = await env.database.query<{ discord_id: unknown }>(
+          `SELECT DISTINCT members.discord_id
+           FROM members
+           JOIN member_roles ON member_roles.member_id = members.id
+           JOIN roles ON roles.id = member_roles.role_id
+           WHERE members.chapter_id = ?
+             AND members.discord_id IS NOT NULL
+             AND lower(trim(roles.name)) IN ('chapter lead')`,
+          chapter.id,
+        ).all();
+        chapterLeadIds = [...new Set(leadRows.map((row) => row.discord_id).filter(validDiscordId))];
+      }
+    }
+
+    const ticketId = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
+    const topic = [
+      `Category: ${category}`,
+      ...(chapterName ? [`Chapter: ${chapterName}`] : []),
+      `Email: ${email}`,
+      `Message:\n${message}`,
+    ].join("\n\n");
+    if (topic.length > 3900) {
+      return new Response("The combined contact details are too long", { status: 400 });
+    }
+
     const client = new DiscordClient(env, []);
     const channelId = await createTicket({
       client,
-      userId: payload.userId.trim(),
-      channelName: payload.channelName.trim(),
-      embedTitle: embedTitle.trim(),
+      userId: CONTACT_TICKET_OPENER_ID,
+      channelName: `Contact-${ticketId}`,
+      embedTitle: `Contact: ${subject}`,
       topic,
+      whitelist: { userIds: chapterLeadIds, roleIds: [] },
     });
     return Response.json({
       status: "created",
+      ticketId,
       channelId,
       channelUrl: `https://discord.com/channels/${TICKET_GUILD_ID}/${channelId}`,
     });

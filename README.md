@@ -14,22 +14,26 @@ in that channel. No Discord incoming webhook is used.
 
 ## Website ticket API
 
-`POST /api/tickets` creates a private ticket in the configured ticket category
-and the Spark guild (`1334027509380943924`). It accepts JSON with required
-`channelName` and `userId` fields and optional `embedTitle` and `topic` fields:
+`POST /api/tickets` creates a private contact ticket in the configured ticket
+category and the Spark guild (`1334027509380943924`). It accepts the contact
+form JSON:
 
 ```json
 {
-  "channelName": "Contact-12345",
-  "userId": "1409557350729257090",
-  "embedTitle": "Contact us",
-  "topic": "A message submitted from the website."
+  "category": "chapter",
+  "chapterName": "North Creek",
+  "email": "visitor@example.com",
+  "message": "A message submitted from the website.",
+  "subject": "Contact us"
 }
 ```
 
-The opener is granted access; no additional users or roles are added by this API.
-The response contains the created `channelId` and `channelUrl`. Discord channel
-names are normalized to lowercase and limited to 100 characters.
+Ticket channels use a generated `Contact-<id>` name and the subject is shown in
+the embed title. The configured contact opener is granted access. For
+`category: "chapter"`, an exact case-insensitive chapter-name match adds members
+with chapter lead or vice lead roles and a linked Discord ID to the allowed
+users. An unknown chapter does not add chapter reviewers. The response includes
+the `ticketId`, `channelId`, and `channelUrl`.
 
 The endpoint requires `Authorization: Bearer <TICKET_API_SECRET>`. Set
 `TICKET_API_SECRET` as a Worker secret using
