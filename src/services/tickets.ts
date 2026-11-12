@@ -130,24 +130,32 @@ export async function createTicket(options: {
     type: ChannelType.Text,
     name: normalizeChannelName(options.channelName),
     categoryId: TICKET_CATEGORY_ID,
+    permissionOverwrites: [
+      {
+        type: OverwriteType.Role,
+        id: TICKET_GUILD_ID,
+        deny: [PermissionFlagsBits.ViewChannel],
+      },
+      ...whitelist.userIds.map((id) => ({
+        type: OverwriteType.Member,
+        id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      })),
+      ...whitelist.roleIds.map((id) => ({
+        type: OverwriteType.Role,
+        id,
+        allow: [
+          PermissionFlagsBits.ViewChannel,
+          PermissionFlagsBits.SendMessages,
+          PermissionFlagsBits.ReadMessageHistory,
+        ],
+      })),
+    ],
   });
-  await channel.editPermissions({
-    type: OverwriteType.Role,
-    id: TICKET_GUILD_ID,
-    deny: [PermissionFlagsBits.ViewChannel],
-  });
-  await Promise.all([
-    ...whitelist.userIds.map((id) => channel.editPermissions({
-      type: OverwriteType.Member,
-      id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-    })),
-    ...whitelist.roleIds.map((id) => channel.editPermissions({
-      type: OverwriteType.Role,
-      id,
-      allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory],
-    })),
-  ]);
   const lifecycle: TicketLifecycle = { status: "open", openerId: options.userId };
   await channel.sendMessage({
     embeds: [ticketEmbed(options.embedTitle, options.topic, lifecycle.status)],

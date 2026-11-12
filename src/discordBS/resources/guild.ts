@@ -15,6 +15,7 @@ import { GuildChannelManager, GuildMemberManager, GuildRoleManager } from "./man
 import { DiscordPaginator } from "../types/pagination.ts";
 import { DiscordScheduledEvent, type ScheduledEventOptions } from "./scheduled-event.ts";
 import { DiscordAutoModerationRule } from "./auto-moderation.ts";
+import { OverwriteType, permissionBits, type PermissionOverwrite } from "../types/permissions.ts";
 
 /** Options for creating or updating a scheduled event. */
 /** Input accepted by guild channel creation. */
@@ -22,6 +23,7 @@ export interface CreateChannelOptions {
   type: ChannelType;
   name: string;
   categoryId?: string;
+  permissionOverwrites?: PermissionOverwrite[];
 }
 
 export interface BanQuery {
@@ -442,6 +444,16 @@ export class DiscordGuild extends DiscordResource<Json, DiscordGuild> {
       name: options.name,
       type,
       ...(options.categoryId ? { parent_id: options.categoryId } : {}),
+      ...(options.permissionOverwrites
+        ? {
+          permission_overwrites: options.permissionOverwrites.map((overwrite) => ({
+            id: overwrite.id,
+            type: overwrite.type === OverwriteType.Role ? 0 : 1,
+            allow: permissionBits(overwrite.allow),
+            deny: permissionBits(overwrite.deny),
+          })),
+        }
+        : {}),
     }).then((channel) => new DiscordChannel(this.client, String(channel.id), channel));
   }
 

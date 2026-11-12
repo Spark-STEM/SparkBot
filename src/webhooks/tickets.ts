@@ -117,11 +117,11 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
 
     const ticketId = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
     const topic = [
-      ...(chapterName ? [`Chapter: ${chapterName}`] : []),
-      `Email: ${email}`,
-      `Subject: ${subject}`,
-      `Message:\n${message}`,
-    ].join("\n\n");
+      ...(chapterName ? [`**Chapter:** ${chapterName}`] : []),
+      `**Email:** ${email}`,
+      `**Subject:** ${subject}`,
+      `\n**Message:**\n${message}`,
+    ].join("\n");
     if (topic.length > 3900) {
       return new Response("The combined contact details are too long", { status: 400 });
     }
