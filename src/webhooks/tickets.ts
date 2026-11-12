@@ -11,10 +11,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function validDiscordId(value: unknown): value is string {
-  return typeof value === "string" && /^[1-9]\d*$/.test(value.trim());
-}
-
 async function hash(value: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value)));
 }
@@ -79,47 +75,40 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
   }
 
   const category = payload.category.trim();
-  const rawChapterName = payload.chapterName ?? payload.Chapter;
-  const chapterName = typeof rawChapterName === "string" ? rawChapterName.trim() : "";
+  const chapterName = typeof payload.chapterName === "string" ? payload.chapterName.trim() : "";
   const email = payload.email.trim();
   const message = payload.message.trim();
   const subject = payload.subject.trim();
   if (category.length > 100 || email.length > 320 || message.length > 3500 ||
       !subject || subject.length > 240 ||
-      chapterName.length > 100) {
+      typeof payload.chapterName !== "string" || chapterName.length > 100) {
     return new Response("Contact form fields are missing or exceed their allowed lengths", { status: 400 });
   }
 
   try {
     let chapterLeadIds: string[] = [];
-    if (category.toLowerCase() === "chapter" && chapterName) {
-      const chapter = await env.database.query<{ id: number }>(
-        `SELECT id
+    if (chapterName) {
+      const leadRows = await env.database.query<{ discord_id: unknown }>(
+        `SELECT DISTINCT trim(members.discord_id) AS discord_id
          FROM chapters
-         WHERE lower(trim(name)) = lower(trim(?))
-         LIMIT 1`,
+         JOIN members ON members.chapter_id = chapters.id
+         JOIN member_roles ON member_roles.member_id = members.id
+         JOIN roles ON roles.id = member_roles.role_id
+         WHERE lower(trim(chapters.name)) = lower(trim(?))
+           AND members.discord_id IS NOT NULL
+           AND trim(members.discord_id) != ''
+           AND lower(trim(members.discord_id)) != 'null'
+           AND lower(trim(roles.name)) IN ('chapter lead', 'chapter vice lead', 'vice lead')`,
         chapterName,
-      ).first();
-      if (chapter) {
-        const leadRows = await env.database.query<{ discord_id: unknown }>(
-          `SELECT DISTINCT members.discord_id
-           FROM members
-           JOIN member_roles ON member_roles.member_id = members.id
-           JOIN roles ON roles.id = member_roles.role_id
-           WHERE members.chapter_id = ?
-             AND members.discord_id IS NOT NULL
-             AND lower(trim(roles.name)) IN ('chapter lead', 'chapter vice lead', 'vice lead')`,
-          chapter.id,
-        ).all();
-        chapterLeadIds = [...new Set(leadRows.map((row) => row.discord_id).filter(validDiscordId))];
-      }
+      ).all();
+      chapterLeadIds = [...new Set(leadRows.map((row) => row.discord_id))] as string[];
     }
 
     const ticketId = crypto.randomUUID().replaceAll("-", "").slice(0, 12);
     const topic = [
-      `Category: ${category}`,
       ...(chapterName ? [`Chapter: ${chapterName}`] : []),
       `Email: ${email}`,
+      `Subject: ${subject}`,
       `Message:\n${message}`,
     ].join("\n\n");
     if (topic.length > 3900) {
@@ -131,7 +120,7 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
       client,
       userId: CONTACT_TICKET_OPENER_ID,
       channelName: `Contact-${ticketId}`,
-      embedTitle: `Contact: ${subject}`,
+      embedTitle: `Contact Us — ${category}`,
       topic,
       whitelist: { userIds: chapterLeadIds, roleIds: [] },
     });
