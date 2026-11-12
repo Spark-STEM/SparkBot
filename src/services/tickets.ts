@@ -11,6 +11,7 @@ import { ChannelType, OverwriteType } from "../discordBS/types/common.ts";
 import { PermissionFlagsBits } from "../discordBS/types/permissions.ts";
 import { deletePersistentComponents, registerPersistentHandler } from "../discordBS/builders/callbacks.ts";
 
+export const TICKET_GUILD_ID = "1334027509380943924";
 const TICKET_CATEGORY_ID = "1565858126161510492";
 const EXECUTIVE_ROLE_ID = "1334030809577029713";
 
@@ -19,6 +20,7 @@ type TicketLifecycle = { status: TicketStatus; openerId: string };
 type TicketControlParams = {
   channelId: string;
   topic: string;
+  embedTitle?: string;
   status: TicketStatus;
   whitelist: { userIds: string[]; roleIds: string[] };
   action: TicketStatus;
@@ -28,11 +30,17 @@ function validDiscordId(value: unknown): value is string {
   return typeof value === "string" && /^\d+$/.test(value.trim()) && value.trim() !== "0";
 }
 
-function ticketEmbed(topic: string, status: TicketStatus): EmbedBuilder {
+function ticketEmbed(title: string, topic: string, status: TicketStatus): EmbedBuilder {
   return new EmbedBuilder()
-    .setTitle(`Registration ticket: ${status}`)
-    .setDescription(`${topic}\n\nThe person who opened this ticket and authorized registration reviewers can access it.`)
+    .setTitle(`${title}: ${status}`)
+    .setDescription(`${topic}\n\nOnly the person who opened this ticket and any explicitly authorized reviewers can access it.`)
     .setColor(status === "open" ? 0x57f287 : status === "locked" ? 0xfee75c : 0xed4245);
+}
+
+function normalizeChannelName(name: string): string {
+  const normalized = name.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 100);
+  if (!normalized) throw new Error("Ticket channel name must contain at least one letter or number.");
+  return normalized;
 }
 
 function canManageTicket(interaction: ComponentInteraction): boolean {
@@ -54,6 +62,7 @@ registerPersistentHandler("ticket.control", async (interaction, rawParams) => {
     return;
   }
   const lifecycle: TicketLifecycle = { status: params.action, openerId: "" };
+  const embedTitle = params.embedTitle ?? "Registration ticket";
   const permission = params.action === "locked"
     ? {
       allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.ReadMessageHistory],
@@ -71,14 +80,15 @@ registerPersistentHandler("ticket.control", async (interaction, rawParams) => {
     ...params.whitelist.roleIds.map((id) => channel.editPermissions({ type: OverwriteType.Role, id, ...permission })),
   ]);
   await interaction.update({
-    embeds: [ticketEmbed(params.topic, params.action)],
-    components: [controls(channel, params.topic, lifecycle, params.whitelist)],
+    embeds: [ticketEmbed(embedTitle, params.topic, params.action)],
+    components: [controls(channel, params.topic, embedTitle, lifecycle, params.whitelist)],
   });
 });
 
 function controls(
   channel: DiscordChannel,
   topic: string,
+  embedTitle: string,
   lifecycle: TicketLifecycle,
   whitelist: { userIds: string[]; roleIds: string[] },
 ) {
@@ -90,7 +100,7 @@ function controls(
     persistent: true as const,
     ownerKey: channel.id,
     persistentKey: action,
-    params: { channelId: channel.id, topic, status: lifecycle.status, whitelist, action },
+    params: { channelId: channel.id, topic, embedTitle, status: lifecycle.status, whitelist, action },
   });
   lock.onClick("ticket.control", persistent("locked"));
   remove.onClick("ticket.control", persistent("closed"));
@@ -103,24 +113,27 @@ function controls(
 
 export async function createTicket(options: {
   client: DiscordClient;
-  guildId: string;
   userId: string;
+  channelName: string;
+  embedTitle: string;
   topic: string;
-  whitelist: { userIds: string[]; roleIds: string[] };
+  whitelist?: { userIds: string[]; roleIds: string[] };
 }): Promise<string> {
-  const guild = options.client.getGuild(options.guildId);
+  if (!validDiscordId(options.userId)) throw new Error("A valid ticket opener Discord user ID is required.");
+  const guild = options.client.getGuild(TICKET_GUILD_ID);
+  const requestedWhitelist = options.whitelist ?? { userIds: [], roleIds: [] };
   const whitelist = {
-    userIds: [...new Set([options.userId, ...options.whitelist.userIds].filter(validDiscordId))],
-    roleIds: [...new Set(options.whitelist.roleIds.filter(validDiscordId))],
+    userIds: [...new Set([options.userId, ...requestedWhitelist.userIds].filter(validDiscordId))],
+    roleIds: [...new Set(requestedWhitelist.roleIds.filter(validDiscordId))],
   };
   const channel = await guild.createChannel({
     type: ChannelType.Text,
-    name: `registration-${options.userId}`.slice(0, 100),
+    name: normalizeChannelName(options.channelName),
     categoryId: TICKET_CATEGORY_ID,
   });
   await channel.editPermissions({
     type: OverwriteType.Role,
-    id: options.guildId,
+    id: TICKET_GUILD_ID,
     deny: [PermissionFlagsBits.ViewChannel],
   });
   await Promise.all([
@@ -137,8 +150,8 @@ export async function createTicket(options: {
   ]);
   const lifecycle: TicketLifecycle = { status: "open", openerId: options.userId };
   await channel.sendMessage({
-    embeds: [ticketEmbed(options.topic, lifecycle.status)],
-    components: [controls(channel, options.topic, lifecycle, whitelist)],
+    embeds: [ticketEmbed(options.embedTitle, options.topic, lifecycle.status)],
+    components: [controls(channel, options.topic, options.embedTitle, lifecycle, whitelist)],
   });
   return channel.id;
 }

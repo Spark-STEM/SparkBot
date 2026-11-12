@@ -1142,8 +1142,9 @@ async function confirmationView(wizard: RegistrationWizard) {
 
         const ticketId = await createTicket({
             client: wizard.client,
-            guildId: wizard.guildId,
             userId: wizard.userId,
+            channelName: `registration-${wizard.userId}`,
+            embedTitle: "Registration ticket",
             topic: wizard.customLocation
                 ? `Location not listed: ${locationText(wizard)}`
                 : wizard.specialRoleIds.length

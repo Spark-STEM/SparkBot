@@ -12,6 +12,35 @@ posts to **#tech** (`1334032077955268679`) using the existing `DISCORD_TOKEN`.
 The message is authored by Spark itself. Spark needs View Channel and Send Messages
 in that channel. No Discord incoming webhook is used.
 
+## Website ticket API
+
+`POST /api/tickets` creates a private ticket in the configured ticket category
+and the Spark guild (`1334027509380943924`). It accepts JSON with required
+`channelName` and `userId` fields and optional `embedTitle` and `topic` fields:
+
+```json
+{
+  "channelName": "Contact-12345",
+  "userId": "1409557350729257090",
+  "embedTitle": "Contact us",
+  "topic": "A message submitted from the website."
+}
+```
+
+The opener is granted access; no additional users or roles are added by this API.
+The response contains the created `channelId` and `channelUrl`. Discord channel
+names are normalized to lowercase and limited to 100 characters.
+
+The endpoint requires `Authorization: Bearer <TICKET_API_SECRET>`. Set
+`TICKET_API_SECRET` as a Worker secret using
+`npx wrangler secret put TICKET_API_SECRET` (or `bunx wrangler` with Bun), then
+deploy. Do not put this secret in website JavaScript: browser users can inspect
+it and call the endpoint themselves. A Cloudflare Pages Function or another
+server-side website endpoint should hold the secret and call this Worker API.
+The API is intended for server-to-server use and does not enable browser CORS.
+The server-side caller must derive `userId` from a trusted identity rather than
+accepting an arbitrary user ID from an unauthenticated form.
+
 Webhook routes and slash commands are discovered from `src/webhooks` and
 `src/slashcommands`. A webhook module exports a default object with a `pathname`
 and `handler` (typed with `Webhook` from `src/webhooks/types.ts`); adding one

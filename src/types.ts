@@ -11,6 +11,7 @@ export interface Env {
   // Pages notification destination and Cloudflare generic webhook authentication
   CLOUDFLARE_WEBHOOK_SECRET?: string;
   CLOUDFLARE_PAGES_POLICY_ID?: string;
+  TICKET_API_SECRET?: string;
 
   // Ticket channel configuration
   TICKET_CATEGORY_ID?: string;

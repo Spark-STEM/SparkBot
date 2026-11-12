@@ -8,9 +8,10 @@ import command3 from "../slashcommands/programs.ts";
 import command4 from "../slashcommands/register.ts";
 import command5 from "../slashcommands/stats.ts";
 import webhook0 from "../webhooks/pageDeployment.ts";
+import webhook1 from "../webhooks/tickets.ts";
 
 export const commands: SlashCommand[] = [command0, command1, command2, command3, command4, command5];
-export const webhooks: Webhook[] = [webhook0];
+export const webhooks: Webhook[] = [webhook0, webhook1];
 
 const webhookPaths = new Set<string>();
 for (const webhook of webhooks) {
