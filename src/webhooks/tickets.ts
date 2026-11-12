@@ -79,19 +79,20 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
   }
 
   const category = payload.category.trim();
-  const chapterName = typeof payload.chapterName === "string" ? payload.chapterName.trim() : "";
+  const rawChapterName = payload.chapterName ?? payload.Chapter;
+  const chapterName = typeof rawChapterName === "string" ? rawChapterName.trim() : "";
   const email = payload.email.trim();
   const message = payload.message.trim();
   const subject = payload.subject.trim();
   if (category.length > 100 || email.length > 320 || message.length > 3500 ||
       !subject || subject.length > 240 ||
-      (category.toLowerCase() === "chapter" && (!chapterName || chapterName.length > 100))) {
+      chapterName.length > 100) {
     return new Response("Contact form fields are missing or exceed their allowed lengths", { status: 400 });
   }
 
   try {
     let chapterLeadIds: string[] = [];
-    if (category.toLowerCase() === "chapter") {
+    if (category.toLowerCase() === "chapter" && chapterName) {
       const chapter = await env.database.query<{ id: number }>(
         `SELECT id
          FROM chapters
@@ -107,7 +108,7 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
            JOIN roles ON roles.id = member_roles.role_id
            WHERE members.chapter_id = ?
              AND members.discord_id IS NOT NULL
-             AND lower(trim(roles.name)) IN ('chapter lead')`,
+             AND lower(trim(roles.name)) IN ('chapter lead', 'chapter vice lead', 'vice lead')`,
           chapter.id,
         ).all();
         chapterLeadIds = [...new Set(leadRows.map((row) => row.discord_id).filter(validDiscordId))];
@@ -139,6 +140,7 @@ export async function handleTicketApi(request: Request, env: Env): Promise<Respo
       ticketId,
       channelId,
       channelUrl: `https://discord.com/channels/${TICKET_GUILD_ID}/${channelId}`,
+      chapterReviewerCount: chapterLeadIds.length,
     });
   } catch (error) {
     console.error("Ticket creation API failed", error);
